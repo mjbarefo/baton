@@ -11,16 +11,24 @@ Bun is only required for local development from this repository.
 
 ## Install
 
-Run the installer directly:
+After the package has been published to npm, run the installer directly:
 
 ```bash
 npx -y ccbaton@latest
 ```
 
-Or with Bun:
+Or with Bun's npm package runner:
 
 ```bash
 bunx -y ccbaton@latest
+```
+
+Before the first npm publish, install from a local checkout:
+
+```bash
+bun install
+bun run build
+node dist/cli.js install
 ```
 
 The installer patches `~/.claude/settings.json` with self-locating commands that keep working after `npx`/`bunx` exits. Published installs use the bundled Node.js CLI; source-tree installs use `bun run src/cli.ts`.
