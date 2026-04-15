@@ -1,5 +1,5 @@
-import chalk from "chalk";
 import { THRESHOLDS } from "../config.ts";
+import { color } from "./color.ts";
 
 const BLOCKS = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"];
 
@@ -15,13 +15,13 @@ export function zoneFor(tokens: number): Zone {
 export function paintZone(zone: Zone, text: string): string {
   switch (zone) {
     case "green":
-      return chalk.green(text);
+      return color.green(text);
     case "yellow":
-      return chalk.yellow(text);
+      return color.yellow(text);
     case "orange":
-      return chalk.hex("#ff8800")(text);
+      return color.hex("#ff8800")(text);
     case "red":
-      return chalk.bold.red(text);
+      return color.bold.red(text);
   }
 }
 
@@ -57,7 +57,7 @@ export function renderBar(tokens: number, max: number, width = 12): string {
   const tickRatio = THRESHOLDS.ORANGE_MAX / max;
   if (tickRatio > 0 && tickRatio < 1) {
     const tickIdx = Math.min(width - 1, Math.round(tickRatio * width));
-    if (cells[tickIdx] !== "█") cells[tickIdx] = chalk.dim("┊");
+    if (cells[tickIdx] !== "█") cells[tickIdx] = color.dim("┊");
   }
 
   const bar = cells.join("");

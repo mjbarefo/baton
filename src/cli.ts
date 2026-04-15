@@ -20,6 +20,7 @@ function usage(): void {
       "baton — context-aware session baton for Claude Code",
       "",
       "Usage:",
+      "  baton                             Install into Claude Code",
       "  baton statusline                  Render statusline (Claude Code pipes StatusJSON on stdin)",
       "  baton hook user-prompt-submit     Hook handler (pipe hook payload on stdin)",
       "  baton hook pre-compact            Hook handler (pipe hook payload on stdin)",
@@ -72,7 +73,12 @@ async function main(): Promise<number> {
     case "drop": {
       return drop({ cwd: process.cwd() });
     }
-    case undefined:
+    case undefined: {
+      const force = args.includes("--force");
+      const report = install({ force });
+      printReport(report);
+      return 0;
+    }
     case "--help":
     case "-h":
     case "help":

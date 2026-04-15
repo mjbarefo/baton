@@ -44,6 +44,15 @@ test("install writes the /drop slash command with the CLI path baked in", () => 
   expect(body).toMatch(/bun run "[^"]+cli\.ts" drop/);
 });
 
+test("source-mode hook commands are self-locating bun invocations", () => {
+  install();
+
+  const settings = JSON.parse(readFileSync(join(TEST_HOME, ".claude", "settings.json"), "utf8"));
+
+  expect(settings.statusLine.command).toMatch(/bun run "[^"]+cli\.ts" statusline/);
+  expect(settings.hooks.UserPromptSubmit[0].hooks[0].command).toMatch(/bun run "[^"]+cli\.ts" hook user-prompt-submit/);
+});
+
 test("install migrates old handoff/handoff-discard commands and reports them", () => {
   const commandsDir = join(TEST_HOME, ".claude", "commands");
   mkdirSync(commandsDir, { recursive: true });
@@ -79,6 +88,53 @@ test("install removes hook events left empty after pruning stale baton hooks", (
 
   const settings = JSON.parse(readFileSync(join(claudeDir, "settings.json"), "utf8"));
   expect(settings.hooks.Stop).toBeUndefined();
+});
+
+test("install prunes stale compiled hook commands from prior npx cache paths", () => {
+  const claudeDir = join(TEST_HOME, ".claude");
+  mkdirSync(claudeDir, { recursive: true });
+  writeFileSync(
+    join(claudeDir, "settings.json"),
+    JSON.stringify({
+      hooks: {
+        UserPromptSubmit: [
+          {
+            hooks: [
+              {
+                type: "command",
+                command: 'node "C:/Users/me/AppData/Local/npm-cache/_npx/old/node_modules/ccbaton/dist/cli.js" hook user-prompt-submit',
+              },
+            ],
+          },
+        ],
+      },
+    }),
+  );
+
+  install();
+
+  const settings = JSON.parse(readFileSync(join(claudeDir, "settings.json"), "utf8"));
+  expect(settings.hooks.UserPromptSubmit).toHaveLength(1);
+  expect(settings.hooks.UserPromptSubmit[0].hooks[0].command).toMatch(/bun run "[^"]+cli\.ts" hook user-prompt-submit/);
+});
+
+test("install rewrites stale compiled statusline commands", () => {
+  const claudeDir = join(TEST_HOME, ".claude");
+  mkdirSync(claudeDir, { recursive: true });
+  writeFileSync(
+    join(claudeDir, "settings.json"),
+    JSON.stringify({
+      statusLine: {
+        type: "command",
+        command: 'node "C:/Users/me/AppData/Local/npm-cache/_npx/old/node_modules/ccbaton/dist/cli.js" statusline',
+      },
+    }),
+  );
+
+  install();
+
+  const settings = JSON.parse(readFileSync(join(claudeDir, "settings.json"), "utf8"));
+  expect(settings.statusLine.command).toMatch(/bun run "[^"]+cli\.ts" statusline/);
 });
 
 test("install does not prune unrelated user hooks that mention baton", () => {
