@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 /**
@@ -7,7 +7,12 @@ import { fileURLToPath } from "node:url";
  * hook (to inline the body at the hard threshold for automatic baton writing).
  */
 export function templatePath(): string {
-  return fileURLToPath(new URL("./template.md", import.meta.url)).replace(/\\/g, "/");
+  const candidates = [
+    fileURLToPath(new URL("./template.md", import.meta.url)),
+    fileURLToPath(new URL("./baton/template.md", import.meta.url)),
+  ];
+  const path = candidates.find((candidate) => existsSync(candidate)) ?? candidates[0]!;
+  return path.replace(/\\/g, "/");
 }
 
 export function readTemplate(): string {

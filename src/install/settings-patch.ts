@@ -12,7 +12,6 @@ import {
   USER_BATON_SKILL_PATH,
   SUBCOMMANDS,
   buildCommand,
-  cliPath,
 } from "../config.ts";
 import { readTemplate } from "../baton/template-loader.ts";
 
@@ -41,8 +40,8 @@ function isBatonCommand(cmd: string | undefined): boolean {
   ) {
     return true;
   }
-  // Self-locating bun-run style: any path ending in baton/.../src/cli.ts.
-  if (/[\\/]baton[\\/].*src[\\/]cli\.ts/.test(cmd)) return true;
+  // Self-locating source or published package style.
+  if (/[\\/](?:cc)?baton[\\/].*(?:src[\\/]cli\.ts|dist[\\/]cli\.js)(?:["'\s]|$)/.test(cmd)) return true;
   return false;
 }
 
@@ -202,7 +201,7 @@ function dropCommandBody(): string {
     "Run this exact command using the Bash tool, and nothing else:",
     "",
     "```bash",
-    `bun run "${cliPath()}" drop`,
+    buildCommand("drop"),
     "```",
     "",
     "After it exits, tell the user verbatim:",
@@ -276,9 +275,10 @@ function migrateOldArtifacts(userCommandsDir: string, userSkillsDir: string): { 
 }
 
 function warnIfBunMissing(): void {
+  if (!buildCommand("help").startsWith("bun run ")) return;
   const bunCheck = spawnSync("bun", ["--version"], { stdio: "pipe" });
   if (bunCheck.error || bunCheck.status !== 0) {
-    console.warn("Warning: 'bun' not found on PATH. Hooks will fail until Bun is installed.");
+    console.warn("Warning: 'bun' not found on PATH. Source-mode hooks will fail until Bun is installed.");
   }
 }
 

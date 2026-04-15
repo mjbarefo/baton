@@ -4,19 +4,26 @@ baton is a Claude Code session snapshot and handoff tool. It writes the current 
 
 ## Prerequisites
 
-- Bun `>=1.3`
+- Node.js `>=20`
 - Claude Code
+
+Bun is only required for local development from this repository.
 
 ## Install
 
-From this repo:
+Run the installer directly:
 
 ```bash
-bun install
-bun run src/cli.ts install
+npx -y ccbaton@latest
 ```
 
-The installer patches `~/.claude/settings.json` with:
+Or with Bun:
+
+```bash
+bunx -y ccbaton@latest
+```
+
+The installer patches `~/.claude/settings.json` with self-locating commands that keep working after `npx`/`bunx` exits. Published installs use the bundled Node.js CLI; source-tree installs use `bun run src/cli.ts`.
 
 - a statusline command
 - `UserPromptSubmit`, `PreCompact`, and `SessionStart` hooks
@@ -36,8 +43,8 @@ Use `/drop` before `/clear` when you want to discard the pending baton and start
 Use `baton catch` when the original session or terminal is already gone but `.claude/baton/BATON.md` still exists. If installed from the renamed package binary, use `baton catch`.
 
 ```bash
-bun run src/cli.ts catch
-bun run src/cli.ts catch --dry-run
+baton catch
+baton catch --dry-run
 ```
 
 ## Statusline
@@ -60,17 +67,30 @@ BATON_FRESH_MS=1800000 claude
 
 ## Commands
 
+After installing from npm, the `baton` binary is available through npm's normal bin resolution:
+
 ```bash
-bun run src/cli.ts install
-bun run src/cli.ts statusline
-bun run src/cli.ts hook user-prompt-submit
-bun run src/cli.ts hook pre-compact
-bun run src/cli.ts hook session-start
-bun run src/cli.ts catch
-bun run src/cli.ts drop
+baton install
+baton statusline
+baton hook user-prompt-submit
+baton hook pre-compact
+baton hook session-start
+baton catch
+baton drop
 ```
 
-After publishing, the package binary is `baton`; the compiled binary path is prepared by `bun run build`.
+## Development
+
+Bun is used to run tests and build the npm package:
+
+```bash
+bun install
+bun test
+bun run build
+bun run src/cli.ts install
+```
+
+The package binary is `baton`; `bun run build` writes the portable Node.js CLI to `dist/cli.js` with a Node shebang for npm/npx execution.
 
 ## Migrating From Handoff To Baton
 

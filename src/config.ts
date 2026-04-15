@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const THRESHOLDS = {
@@ -33,16 +33,15 @@ export const SUBCOMMANDS = {
   hookSs: "hook session-start",
 } as const;
 
-/**
- * Resolve the absolute path of src/cli.ts relative to this module and normalize
- * to forward slashes so the resulting command string works cross-shell on Windows.
- * Used by the installer to write self-locating hook commands into settings.json —
- * no PATH setup required, same UX as ccstatusline's npx approach.
- */
 export function cliPath(): string {
-  return fileURLToPath(new URL("./cli.ts", import.meta.url)).replace(/\\/g, "/");
+  const modulePath = fileURLToPath(import.meta.url);
+  const sourceCliPath = join(dirname(modulePath), "cli.ts");
+  const path = modulePath.endsWith("config.ts") ? sourceCliPath : modulePath;
+  return path.replace(/\\/g, "/");
 }
 
 export function buildCommand(sub: string): string {
-  return `bun run "${cliPath()}" ${sub}`;
+  const path = cliPath();
+  const runner = path.endsWith(".ts") ? "bun run" : "node";
+  return `${runner} "${path}" ${sub}`;
 }

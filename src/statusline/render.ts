@@ -1,6 +1,6 @@
-import chalk from "chalk";
 import { statSync } from "node:fs";
 import { renderBar } from "./bar.ts";
+import { color } from "./color.ts";
 import {
   renderModel,
   renderBranch,
@@ -31,10 +31,6 @@ const DEFAULT_MAX = 200_000;
 const SEP_TEXT = " │ ";
 let cachedSnapshot: { path: string; mtimeMs: number; total: number } | null = null;
 
-function forceColor(): void {
-  chalk.level = 3;
-}
-
 function tokenTotalFromTranscript(path: string): number {
   try {
     const mtimeMs = statSync(path).mtimeMs;
@@ -50,8 +46,6 @@ function tokenTotalFromTranscript(path: string): number {
 }
 
 export async function renderStatusline(raw: string): Promise<string> {
-  forceColor();
-
   let data: StatusJSON = {};
   try {
     data = JSON.parse(raw || "{}") as StatusJSON;
@@ -76,5 +70,5 @@ export async function renderStatusline(raw: string): Promise<string> {
     renderCost(data.cost?.total_cost_usd),
   ];
 
-  return parts.filter((p): p is string => !!p).join(chalk.dim(SEP_TEXT));
+  return parts.filter((p): p is string => !!p).join(color.dim(SEP_TEXT));
 }
