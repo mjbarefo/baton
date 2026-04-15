@@ -7,7 +7,7 @@
     "node": ">=20"
   },
   "bin": {
-    "baton": "./dist/cli.js"
+    "baton": "dist/cli.js"
   },
   "scripts": {
     "start": "bun run src/cli.ts",
@@ -24,5 +24,11 @@
   "files": [
     "dist"
   ],
-  "keywords": ["claude-code", "statusline", "baton", "context", "anthropic"]
+  "keywords": [
+    "claude-code",
+    "statusline",
+    "baton",
+    "context",
+    "anthropic"
+  ]
 }
