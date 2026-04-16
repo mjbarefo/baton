@@ -1,6 +1,6 @@
 ---
 name: baton
-description: Snapshot the current Claude Code session into a structured BATON.md so a fresh session can resume without context rot. Use when the user types /baton, when context is above 110k tokens and a natural break is approaching, or when baton's nudge hook has injected baton instructions.
+description: Snapshot the current Claude Code session into a structured BATON.md so a fresh session can resume without context rot. Invoke this skill whenever the user types /baton, says "save progress", "wrap up", "hand off the session", "snapshot", or "let's stop here"; when context is large and a stopping point is near; or when the baton hook has injected baton protocol instructions.
 disable-model-invocation: false
 ---
 
@@ -71,6 +71,6 @@ _Written by Claude at <ISO timestamp>. Fresh session: read this top-to-bottom be
 
 Tell the user, exactly:
 
-> Baton written to `.claude/baton/BATON.md`. In a **new terminal** run: `baton catch`
+> Baton written to `.claude/baton/BATON.md`. Type `/clear` for a fresh session that auto-resumes — or open a new terminal and run `baton catch` if this session is ending.
 
 Do not do any other work after writing the baton. The fresh session will pick up from the file.
