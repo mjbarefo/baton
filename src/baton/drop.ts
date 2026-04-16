@@ -1,18 +1,6 @@
-import { existsSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
 import { BATON_REL_PATH } from "../config.ts";
 import { archiveBaton } from "./archive.ts";
-
-function findBaton(startDir: string): string | null {
-  let dir = resolve(startDir);
-  while (true) {
-    const candidate = join(dir, BATON_REL_PATH);
-    if (existsSync(candidate)) return candidate;
-    const parent = dirname(dir);
-    if (parent === dir) return null;
-    dir = parent;
-  }
-}
+import { findBaton } from "./find.ts";
 
 export interface DropOptions {
   cwd: string;
