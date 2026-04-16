@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, wri
 import { join } from "node:path";
 import { snapshotFromTranscript } from "../transcript/tokens.ts";
 import { readTemplateBody } from "../baton/template-loader.ts";
-import { BATON_STATE_DIR, THRESHOLDS } from "../config.ts";
+import { batonStateDir, THRESHOLDS } from "../config.ts";
 
 interface HookPayload {
   session_id?: string;
@@ -34,15 +34,16 @@ function readState(path: string): StateFile {
 }
 
 function writeState(path: string, state: StateFile): void {
-  mkdirSync(BATON_STATE_DIR, { recursive: true });
+  mkdirSync(batonStateDir(), { recursive: true });
   writeFileSync(path, JSON.stringify(state));
 }
 
 function pruneStaleStateFiles(): void {
-  if (!existsSync(BATON_STATE_DIR)) return;
+  const stateDir = batonStateDir();
+  if (!existsSync(stateDir)) return;
   const now = Date.now();
-  for (const f of readdirSync(BATON_STATE_DIR)) {
-    const p = join(BATON_STATE_DIR, f);
+  for (const f of readdirSync(stateDir)) {
+    const p = join(stateDir, f);
     if (now - statSync(p).mtimeMs > MAX_STATE_AGE_MS) rmSync(p);
   }
 }
@@ -84,7 +85,7 @@ export async function runUserPromptSubmitHook(raw: string): Promise<void> {
   const level = levelFor(snap.total);
   if (level === "none") return;
 
-  const statePath = join(BATON_STATE_DIR, `${sessionId}.json`);
+  const statePath = join(batonStateDir(), `${sessionId}.json`);
   const prior = readState(statePath);
 
   // Only fire when level *increases*. Once soft is sent, don't resend soft every turn.

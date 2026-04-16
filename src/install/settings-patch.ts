@@ -2,16 +2,16 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync, readd
 import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 import {
-  USER_CLAUDE_DIR,
-  USER_SETTINGS_PATH,
-  USER_COMMANDS_DIR,
-  USER_BATON_CMD_PATH,
-  USER_DROP_CMD_PATH,
-  USER_SKILLS_DIR,
-  USER_BATON_SKILL_DIR,
-  USER_BATON_SKILL_PATH,
   SUBCOMMANDS,
   buildCommand,
+  userBatonCommandPath,
+  userBatonSkillDir,
+  userBatonSkillPath,
+  userClaudeDir,
+  userCommandsDir,
+  userDropCommandPath,
+  userSettingsPath,
+  userSkillsDir,
 } from "../config.ts";
 import { readTemplate } from "../baton/template-loader.ts";
 
@@ -84,22 +84,22 @@ export interface InstallReport {
   migratedSkills: string[];
 }
 
-function loadSettings(): Settings {
-  if (!existsSync(USER_SETTINGS_PATH)) return {};
+function loadSettings(settingsPath: string): Settings {
+  if (!existsSync(settingsPath)) return {};
   try {
-    return JSON.parse(readFileSync(USER_SETTINGS_PATH, "utf8")) as Settings;
+    return JSON.parse(readFileSync(settingsPath, "utf8")) as Settings;
   } catch (err) {
     throw new Error(
-      `Failed to parse ${USER_SETTINGS_PATH}: ${String(err)}. Fix manually before running baton install.`,
+      `Failed to parse ${settingsPath}: ${String(err)}. Fix manually before running baton install.`,
     );
   }
 }
 
-function backup(): string | null {
-  if (!existsSync(USER_SETTINGS_PATH)) return null;
+function backup(settingsPath: string): string | null {
+  if (!existsSync(settingsPath)) return null;
   const ts = new Date().toISOString().replace(/[:.]/g, "-");
-  const path = `${USER_SETTINGS_PATH}.baton-backup-${ts}`;
-  copyFileSync(USER_SETTINGS_PATH, path);
+  const path = `${settingsPath}.baton-backup-${ts}`;
+  copyFileSync(settingsPath, path);
   return path;
 }
 
@@ -183,16 +183,16 @@ function writeFileIfChanged(path: string, body: string): boolean {
   return true;
 }
 
-function writeBatonCommand(body: string): boolean {
-  mkdirSync(USER_COMMANDS_DIR, { recursive: true });
-  return writeFileIfChanged(USER_BATON_CMD_PATH, body);
+function writeBatonCommand(commandsDir: string, cmdPath: string, body: string): boolean {
+  mkdirSync(commandsDir, { recursive: true });
+  return writeFileIfChanged(cmdPath, body);
 }
 
 function dropCommandBody(): string {
   return [
     "---",
     "name: drop",
-    "description: Drop the pending baton baton so /clear starts a truly fresh session instead of auto-resuming.",
+    "description: Archive and discard the pending baton so /clear starts a completely fresh session instead of auto-resuming. Invoke when the user runs /drop or says they want to start fresh without resuming.",
     "disable-model-invocation: false",
     "---",
     "",
@@ -204,18 +204,18 @@ function dropCommandBody(): string {
     buildCommand("drop"),
     "```",
     "",
-    "After it exits, tell the user verbatim:",
+    "After it exits, relay whatever the command printed, then tell the user:",
     "",
-    "> Baton dropped. Type /clear for a clean session.",
+    "> Type /clear to start a clean session.",
     "",
     "Do not write any files. Do not explore the codebase. Do not re-plan.",
     "",
   ].join("\n");
 }
 
-function writeDropCommand(): boolean {
-  mkdirSync(USER_COMMANDS_DIR, { recursive: true });
-  return writeFileIfChanged(USER_DROP_CMD_PATH, dropCommandBody());
+function writeDropCommand(commandsDir: string, cmdPath: string): boolean {
+  mkdirSync(commandsDir, { recursive: true });
+  return writeFileIfChanged(cmdPath, dropCommandBody());
 }
 
 /**
@@ -224,10 +224,10 @@ function writeDropCommand(): boolean {
  * the top-level skills/ directory didn't exist before — per Claude Code docs,
  * newly-created top-level skills dirs aren't hot-reloaded until restart.
  */
-function writeBatonSkill(body: string): { wrote: boolean; dirCreated: boolean } {
-  const dirCreated = !existsSync(USER_SKILLS_DIR);
-  mkdirSync(USER_BATON_SKILL_DIR, { recursive: true });
-  const wrote = writeFileIfChanged(USER_BATON_SKILL_PATH, body);
+function writeBatonSkill(skillsDir: string, skillDir: string, skillPath: string, body: string): { wrote: boolean; dirCreated: boolean } {
+  const dirCreated = !existsSync(skillsDir);
+  mkdirSync(skillDir, { recursive: true });
+  const wrote = writeFileIfChanged(skillPath, body);
   return { wrote, dirCreated };
 }
 
@@ -284,11 +284,20 @@ function warnIfBunMissing(): void {
 
 export function install(opts: InstallOptions = {}): InstallReport {
   warnIfBunMissing();
-  mkdirSync(USER_CLAUDE_DIR, { recursive: true });
-  const backupPath = backup();
-  const settings = loadSettings();
+  const claudeDir = userClaudeDir();
+  const settingsPath = userSettingsPath();
+  const commandsDir = userCommandsDir();
+  const batonCmdPath = userBatonCommandPath();
+  const dropCmdPath = userDropCommandPath();
+  const skillsDir = userSkillsDir();
+  const batonSkillDir = userBatonSkillDir();
+  const batonSkillPath = userBatonSkillPath();
 
-  const { migratedCommands, migratedSkills } = migrateOldArtifacts(USER_COMMANDS_DIR, USER_SKILLS_DIR);
+  mkdirSync(claudeDir, { recursive: true });
+  const backupPath = backup(settingsPath);
+  const settings = loadSettings(settingsPath);
+
+  const { migratedCommands, migratedSkills } = migrateOldArtifacts(commandsDir, skillsDir);
 
   pruneStaleBatonHooks(settings, new Set([STATUSLINE_CMD, HOOK_UPS_CMD, HOOK_PC_CMD, HOOK_SS_CMD]));
 
@@ -297,15 +306,15 @@ export function install(opts: InstallOptions = {}): InstallReport {
   const wrotePc = mergeHook(settings, "PreCompact", "auto", HOOK_PC_CMD);
   const wroteSs = mergeHook(settings, "SessionStart", undefined, HOOK_SS_CMD);
 
-  mkdirSync(dirname(USER_SETTINGS_PATH), { recursive: true });
-  const tmpSettingsPath = `${USER_SETTINGS_PATH}.tmp`;
+  mkdirSync(dirname(settingsPath), { recursive: true });
+  const tmpSettingsPath = `${settingsPath}.tmp`;
   writeFileSync(tmpSettingsPath, JSON.stringify(settings, null, 2) + "\n", "utf8");
-  renameSync(tmpSettingsPath, USER_SETTINGS_PATH);
+  renameSync(tmpSettingsPath, settingsPath);
 
   const templateBody = readTemplate();
-  const wroteBatonCommand = writeBatonCommand(templateBody);
-  const wroteDropCommand = writeDropCommand();
-  const skillResult = writeBatonSkill(templateBody);
+  const wroteBatonCommand = writeBatonCommand(commandsDir, batonCmdPath, templateBody);
+  const wroteDropCommand = writeDropCommand(commandsDir, dropCmdPath);
+  const skillResult = writeBatonSkill(skillsDir, batonSkillDir, batonSkillPath, templateBody);
 
   return {
     backupPath,
@@ -319,10 +328,10 @@ export function install(opts: InstallOptions = {}): InstallReport {
     wroteDropCommand,
     wroteBatonSkill: skillResult.wrote,
     skillsDirCreated: skillResult.dirCreated,
-    settingsPath: USER_SETTINGS_PATH,
-    batonCommandPath: USER_BATON_CMD_PATH,
-    dropCommandPath: USER_DROP_CMD_PATH,
-    batonSkillPath: USER_BATON_SKILL_PATH,
+    settingsPath,
+    batonCommandPath: batonCmdPath,
+    dropCommandPath: dropCmdPath,
+    batonSkillPath,
     migratedCommands,
     migratedSkills,
   };

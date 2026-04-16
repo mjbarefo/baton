@@ -14,17 +14,52 @@ export const BATON_FRESH_MS = Number(process.env.BATON_FRESH_MS ?? 10 * 60 * 100
 
 export const BATON_REL_PATH = ".claude/baton/BATON.md";
 
-export const USER_CLAUDE_DIR = join(homedir(), ".claude");
-export const USER_SETTINGS_PATH = join(USER_CLAUDE_DIR, "settings.json");
-export const USER_COMMANDS_DIR = join(USER_CLAUDE_DIR, "commands");
-export const USER_BATON_CMD_PATH = join(USER_COMMANDS_DIR, "baton.md");
-export const USER_DROP_CMD_PATH = join(USER_COMMANDS_DIR, "drop.md");
-export const USER_SKILLS_DIR = join(USER_CLAUDE_DIR, "skills");
-export const USER_BATON_SKILL_DIR = join(USER_SKILLS_DIR, "baton");
-export const USER_BATON_SKILL_PATH = join(USER_BATON_SKILL_DIR, "SKILL.md");
+export function userHomeDir(): string {
+  if (process.platform === "win32") {
+    return process.env.USERPROFILE ?? homedir();
+  }
+  return process.env.HOME ?? homedir();
+}
 
-export const BATON_STATE_DIR = join(USER_CLAUDE_DIR, "baton", "state");
-export const BATON_ARCHIVE_DIR = join(USER_CLAUDE_DIR, "baton", "archive");
+export function userClaudeDir(): string {
+  return join(userHomeDir(), ".claude");
+}
+
+export function userSettingsPath(): string {
+  return join(userClaudeDir(), "settings.json");
+}
+
+export function userCommandsDir(): string {
+  return join(userClaudeDir(), "commands");
+}
+
+export function userBatonCommandPath(): string {
+  return join(userCommandsDir(), "baton.md");
+}
+
+export function userDropCommandPath(): string {
+  return join(userCommandsDir(), "drop.md");
+}
+
+export function userSkillsDir(): string {
+  return join(userClaudeDir(), "skills");
+}
+
+export function userBatonSkillDir(): string {
+  return join(userSkillsDir(), "baton");
+}
+
+export function userBatonSkillPath(): string {
+  return join(userBatonSkillDir(), "SKILL.md");
+}
+
+export function batonStateDir(): string {
+  return join(userClaudeDir(), "baton", "state");
+}
+
+export function batonArchiveDir(): string {
+  return join(userClaudeDir(), "baton", "archive");
+}
 
 export const SUBCOMMANDS = {
   statusline: "statusline",

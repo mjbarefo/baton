@@ -40,7 +40,7 @@ test("install writes the /drop slash command with the CLI path baked in", () => 
 
   const body = readFileSync(report.dropCommandPath, "utf8");
   expect(body).toContain("name: drop");
-  expect(body).toContain("Type /clear for a clean session");
+  expect(body).toContain("Type /clear to start a clean session");
   expect(body).toMatch(/bun run "[^"]+cli\.ts" drop/);
 });
 
