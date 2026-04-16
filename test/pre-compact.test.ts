@@ -70,6 +70,23 @@ describe("runPreCompactHook", () => {
     expect(written).toContain("src/foo.ts:42");
   });
 
+  test("fallback write failure still emits block decision with error reason", async () => {
+    // Force writeFallbackBaton to fail by placing a file where it expects a directory.
+    mkdirSync(join(tmp, ".claude"), { recursive: true });
+    writeFileSync(join(tmp, ".claude", "baton"), "i am a file, not a directory");
+
+    const transcript = writeTranscriptFixture(tmp, "transcript.jsonl", {
+      inputTokens: 120_000,
+    });
+    const code = await runPreCompactHook(
+      JSON.stringify({ trigger: "auto", cwd: tmp, transcript_path: transcript }),
+    );
+    expect(code).toBe(0);
+    const parsed = JSON.parse(stdoutCapture);
+    expect(parsed.decision).toBe("block");
+    expect(parsed.reason).toContain("FAILED");
+  });
+
   test("missing baton triggers fallback write and block", async () => {
     const transcript = writeTranscriptFixture(tmp, "transcript.jsonl", {
       inputTokens: 120_000,
