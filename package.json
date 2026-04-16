@@ -1,6 +1,6 @@
 {
   "name": "ccbaton",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Context-aware session baton for Claude Code. Statusline + /baton + PreCompact safety net.",
   "repository": {
     "type": "git",
