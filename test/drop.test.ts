@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { TEST_HOME } from "./helpers/test-home.ts";
 
 const { drop } = await import("../src/baton/drop.ts");
-const { BATON_ARCHIVE_DIR } = await import("../src/config.ts");
+const BATON_ARCHIVE_DIR = join(TEST_HOME, ".claude", "baton", "archive");
 
 let proj: string;
 let stdoutCapture: string;

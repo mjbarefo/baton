@@ -8,7 +8,8 @@ process.env.USERPROFILE = testHome;
 process.env.HOME = testHome;
 
 const { runSessionStartHook } = await import("../src/hooks/session-start.ts");
-const { BATON_ARCHIVE_DIR, USER_CLAUDE_DIR } = await import("../src/config.ts");
+const BATON_ARCHIVE_DIR = join(testHome, ".claude", "baton", "archive");
+const USER_CLAUDE_DIR = join(testHome, ".claude");
 
 let tmp: string;
 let stdoutCapture: string;

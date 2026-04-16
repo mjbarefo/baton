@@ -27,7 +27,7 @@ mock.module("node:child_process", () => ({
 }));
 
 const { catchBaton } = await import("../src/baton/catch.ts");
-const { BATON_ARCHIVE_DIR } = await import("../src/config.ts");
+const BATON_ARCHIVE_DIR = join(TEST_HOME, ".claude", "baton", "archive");
 
 let tmp: string;
 let stdoutCapture: string;
