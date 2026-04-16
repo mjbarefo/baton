@@ -14,7 +14,7 @@ export const BATON_FRESH_MS = Number(process.env.BATON_FRESH_MS ?? 10 * 60 * 100
 
 export const BATON_REL_PATH = ".claude/baton/BATON.md";
 
-export const USER_CLAUDE_DIR = join(homedir(), ".claude");
+export const USER_CLAUDE_DIR = join(process.env.HOME ?? process.env.USERPROFILE ?? homedir(), ".claude");
 export const USER_SETTINGS_PATH = join(USER_CLAUDE_DIR, "settings.json");
 export const USER_COMMANDS_DIR = join(USER_CLAUDE_DIR, "commands");
 export const USER_BATON_CMD_PATH = join(USER_COMMANDS_DIR, "baton.md");
