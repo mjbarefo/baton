@@ -1,9 +1,9 @@
 import { copyFileSync, mkdirSync, renameSync, statSync, unlinkSync } from "node:fs";
-import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import { batonArchiveDir } from "../config.ts";
 
 function archiveDir(): string {
-  return join(process.env.HOME ?? process.env.USERPROFILE ?? homedir(), ".claude", "baton", "archive");
+  return batonArchiveDir();
 }
 
 export function archiveBaton(batonPath: string, suffix = ""): string {

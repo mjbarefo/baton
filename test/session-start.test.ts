@@ -2,14 +2,11 @@ import { expect, test, describe, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, utimesSync, existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-
-const testHome = mkdtempSync(join(tmpdir(), "baton-session-start-home-"));
-process.env.USERPROFILE = testHome;
-process.env.HOME = testHome;
+import { TEST_HOME } from "./helpers/test-home.ts";
 
 const { runSessionStartHook } = await import("../src/hooks/session-start.ts");
-const BATON_ARCHIVE_DIR = join(testHome, ".claude", "baton", "archive");
-const USER_CLAUDE_DIR = join(testHome, ".claude");
+const BATON_ARCHIVE_DIR = join(TEST_HOME, ".claude", "baton", "archive");
+const USER_CLAUDE_DIR = join(TEST_HOME, ".claude");
 
 let tmp: string;
 let stdoutCapture: string;

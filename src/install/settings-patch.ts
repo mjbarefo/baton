@@ -1,10 +1,17 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync, readdirSync, rmSync, renameSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 import {
   SUBCOMMANDS,
   buildCommand,
+  userBatonCommandPath,
+  userBatonSkillDir,
+  userBatonSkillPath,
+  userClaudeDir,
+  userCommandsDir,
+  userDropCommandPath,
+  userSettingsPath,
+  userSkillsDir,
 } from "../config.ts";
 import { readTemplate } from "../baton/template-loader.ts";
 
@@ -277,14 +284,14 @@ function warnIfBunMissing(): void {
 
 export function install(opts: InstallOptions = {}): InstallReport {
   warnIfBunMissing();
-  const claudeDir = join(process.env.HOME ?? process.env.USERPROFILE ?? homedir(), ".claude");
-  const settingsPath = join(claudeDir, "settings.json");
-  const commandsDir = join(claudeDir, "commands");
-  const batonCmdPath = join(commandsDir, "baton.md");
-  const dropCmdPath = join(commandsDir, "drop.md");
-  const skillsDir = join(claudeDir, "skills");
-  const batonSkillDir = join(skillsDir, "baton");
-  const batonSkillPath = join(batonSkillDir, "SKILL.md");
+  const claudeDir = userClaudeDir();
+  const settingsPath = userSettingsPath();
+  const commandsDir = userCommandsDir();
+  const batonCmdPath = userBatonCommandPath();
+  const dropCmdPath = userDropCommandPath();
+  const skillsDir = userSkillsDir();
+  const batonSkillDir = userBatonSkillDir();
+  const batonSkillPath = userBatonSkillPath();
 
   mkdirSync(claudeDir, { recursive: true });
   const backupPath = backup(settingsPath);

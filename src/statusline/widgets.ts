@@ -4,7 +4,7 @@ import { color } from "./color.ts";
 import {
   BATON_FRESH_MS,
   BATON_REL_PATH,
-  BATON_STATE_DIR,
+  batonStateDir,
   THRESHOLDS,
 } from "../config.ts";
 import { formatK } from "./bar.ts";
@@ -48,7 +48,7 @@ export function renderBatonBadge(cwd: string | undefined, sessionId: string | un
   }
 
   if (sessionId) {
-    const statePath = join(BATON_STATE_DIR, `${sessionId}.json`);
+    const statePath = join(batonStateDir(), `${sessionId}.json`);
     if (existsSync(statePath)) {
       try {
         const state = JSON.parse(readFileSync(statePath, "utf8")) as { level?: string };
