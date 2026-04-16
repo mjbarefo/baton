@@ -47,6 +47,10 @@ export async function runSessionStartHook(raw: string): Promise<number> {
     return 0;
   }
 
+  // Inject first, archive second. This ordering is intentional:
+  // - If archive fails after inject: baton re-injects on next /clear (double-resume, annoying but recoverable).
+  // - If inject fails after archive: baton is permanently gone with no recovery path (data loss).
+  // Tolerating a possible double-resume is strictly safer than risking baton loss.
   process.stdout.write(
     JSON.stringify({
       hookSpecificOutput: {
@@ -60,7 +64,6 @@ export async function runSessionStartHook(raw: string): Promise<number> {
     archiveBaton(batonPath);
   } catch (err) {
     process.stderr.write(`baton session-start: failed to archive ${batonPath}: ${String(err)}\n`);
-    return 0;
   }
 
   return 0;

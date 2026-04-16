@@ -53,6 +53,10 @@ export async function runPreCompactHook(raw: string): Promise<number> {
     writtenPath = writeFallbackBaton(cwd, payload.transcript_path || "", tokens);
   } catch (err) {
     process.stderr.write(`baton pre-compact fallback failed: ${String(err)}\n`);
+    const reason =
+      `baton: auto-compact intercepted but fallback baton write FAILED (${String(err)}). ` +
+      `Do NOT compact. Tell the user, verbatim: 'Baton could not write a fallback — run /baton manually before continuing.'`;
+    process.stdout.write(JSON.stringify({ decision: "block", reason }));
     return 0;
   }
 
