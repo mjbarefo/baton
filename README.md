@@ -65,6 +65,12 @@ When context gets high, baton nudges Claude to snapshot. At the hard threshold, 
 BATON_FRESH_MS=1800000 claude
 ```
 
+`SESSION_AGE_NUDGE_MS` controls the session-age nudge threshold. After 5 hours in a session with at least 30k tokens in context, baton suggests a snapshot even if token pressure is low. Configurable if you prefer a different window:
+
+```bash
+SESSION_AGE_NUDGE_MS=10800000 claude  # nudge after 3 hours instead
+```
+
 ## Commands
 
 After installing from npm, the `baton` binary is available through npm's normal bin resolution:
