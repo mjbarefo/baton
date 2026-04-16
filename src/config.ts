@@ -2,6 +2,9 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+// ORANGE_MAX intentionally sits above NUDGE_HARD: the visual bar escalates after
+// the hard nudge fires, not before. The nudge is the primary signal; the color
+// change is a trailing indicator for sessions where Claude hasn't acted yet.
 export const THRESHOLDS = {
   GREEN_MAX: 80_000,
   YELLOW_MAX: 110_000,
@@ -10,7 +13,17 @@ export const THRESHOLDS = {
   NUDGE_HARD: 120_000,
 } as const;
 
-export const BATON_FRESH_MS = Number(process.env.BATON_FRESH_MS ?? 10 * 60 * 1000);
+/** Nudge toward /baton after a session has been open this long (5 hours). */
+export const SESSION_AGE_NUDGE_MS = 5 * 60 * 60 * 1000;
+/** Minimum token count for the age nudge to fire (skip trivial sessions). */
+export const SESSION_AGE_NUDGE_MIN_TOKENS = 30_000;
+
+const _BATON_FRESH_MS_DEFAULT = 10 * 60 * 1000;
+const _batonFreshRaw = Number(process.env.BATON_FRESH_MS ?? _BATON_FRESH_MS_DEFAULT);
+if (process.env.BATON_FRESH_MS !== undefined && isNaN(_batonFreshRaw)) {
+  process.stderr.write(`baton: BATON_FRESH_MS="${process.env.BATON_FRESH_MS}" is not a number — using default ${_BATON_FRESH_MS_DEFAULT}ms\n`);
+}
+export const BATON_FRESH_MS = isNaN(_batonFreshRaw) ? _BATON_FRESH_MS_DEFAULT : _batonFreshRaw;
 
 export const BATON_REL_PATH = ".claude/baton/BATON.md";
 

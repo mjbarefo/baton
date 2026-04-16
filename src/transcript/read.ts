@@ -89,3 +89,53 @@ function parseAssistantUsageLine(line: string | undefined): TranscriptEntry | nu
 export function isMainChain(entry: TranscriptEntry): boolean {
   return entry.isSidechain !== true && entry.isApiErrorMessage !== true;
 }
+
+/**
+ * Returns the timestamp of the first entry in the transcript, or null if not found.
+ * Reads in forward chunks and stops as soon as a timestamp is found, so it never
+ * parses the full file on long-lived sessions.
+ */
+export function readFirstTimestamp(path: string): string | null {
+  if (!path || !existsSync(path)) return null;
+  const fd = openSync(path, "r");
+  try {
+    const size = statSync(path).size;
+    const chunkSize = 64 * 1024;
+    let position = 0;
+    let prefix = "";
+
+    while (position < size) {
+      const bytesToRead = Math.min(chunkSize, size - position);
+      const buffer = Buffer.allocUnsafe(bytesToRead);
+      const bytesRead = readSync(fd, buffer, 0, bytesToRead, position);
+      position += bytesRead;
+      const text = prefix + buffer.toString("utf8", 0, bytesRead);
+      const lines = text.split("\n");
+      // Last element may be a partial line — carry it forward.
+      prefix = lines.pop() ?? "";
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+          const entry = JSON.parse(trimmed) as TranscriptEntry;
+          if (entry.timestamp) return entry.timestamp;
+        } catch {
+          // Skip malformed lines.
+        }
+      }
+    }
+
+    // Check any remaining partial line.
+    if (prefix.trim()) {
+      try {
+        const entry = JSON.parse(prefix.trim()) as TranscriptEntry;
+        if (entry.timestamp) return entry.timestamp;
+      } catch { /* ignore */ }
+    }
+
+    return null;
+  } finally {
+    closeSync(fd);
+  }
+}
