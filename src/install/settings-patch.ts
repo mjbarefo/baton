@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 import {
   SUBCOMMANDS,
+  VERSION,
   buildCommand,
   installManifestPath,
   userBatonCommandPath,
@@ -14,6 +15,7 @@ import {
   userSettingsPath,
   userSkillsDir,
 } from "../config.ts";
+import { color } from "../statusline/color.ts";
 import { readTemplate } from "../baton/template-loader.ts";
 
 const STATUSLINE_CMD = buildCommand(SUBCOMMANDS.statusline);
@@ -63,9 +65,11 @@ interface Settings {
 
 export interface InstallOptions {
   force?: boolean;
+  postinstall?: boolean;
 }
 
 export interface InstallReport {
+  postinstall: boolean;
   backupPath: string | null;
   wroteStatusline: boolean;
   skippedStatuslineReason: string | null;
@@ -505,6 +509,7 @@ export function install(opts: InstallOptions = {}): InstallReport {
   writeInstallManifest(hadBatonEntriesBeforeInstall ? null : backupPath);
 
   return {
+    postinstall: opts.postinstall ?? false,
     backupPath,
     wroteStatusline: statusResult.wrote,
     skippedStatuslineReason: statusResult.skipped,
@@ -525,42 +530,149 @@ export function install(opts: InstallOptions = {}): InstallReport {
   };
 }
 
+function tick(wrote: boolean): string {
+  return wrote ? color.green("✓") : color.dim("·");
+}
+
 export function printReport(r: InstallReport): void {
+  // --postinstall: silent if nothing changed, one-liner if first install.
+  if (r.postinstall) {
+    const anyNew = r.wroteStatusline || r.wroteUserPromptSubmit || r.wrotePreCompact ||
+      r.wroteSessionStart || r.wroteBatonCommand || r.wroteDropCommand || r.wroteBatonSkill;
+    if (!anyNew) return;
+    process.stdout.write(
+      color.green("✓") + ` baton v${VERSION} installed — restart Claude Code to activate.\n`,
+    );
+    return;
+  }
+
   const lines: string[] = [];
-  lines.push("baton install — summary");
+  lines.push(color.cyan.bold(`baton v${VERSION}`) + " installed");
   lines.push("");
-  if (r.backupPath) lines.push(`  backup:    ${r.backupPath}`);
-  else lines.push(`  backup:    (no prior settings.json)`);
-  lines.push(`  settings:  ${r.settingsPath}`);
-  const statusLabel = r.wroteStatusline
-    ? r.replacedStatusline
-      ? `installed (replaced "${r.replacedStatusline}")`
-      : "installed"
-    : r.skippedStatuslineReason
-    ? `skipped (${r.skippedStatuslineReason})`
-    : "already present";
-  lines.push(`    statusLine:        ${statusLabel}`);
-  lines.push(`    UserPromptSubmit:  ${r.wroteUserPromptSubmit ? "installed" : "already present"}`);
-  lines.push(`    PreCompact (auto): ${r.wrotePreCompact ? "installed" : "already present"}`);
-  lines.push(`    SessionStart:      ${r.wroteSessionStart ? "installed" : "already present"}`);
-  lines.push(`  skill:     ${r.batonSkillPath}  ${r.wroteBatonSkill ? "(written)" : "(unchanged)"}`);
-  lines.push(`  command:   ${r.batonCommandPath}  ${r.wroteBatonCommand ? "(written)" : "(unchanged)"}  (legacy mirror)`);
-  lines.push(`  command:   ${r.dropCommandPath}  ${r.wroteDropCommand ? "(written)" : "(unchanged)"}  (/drop)`);
+
+  if (r.skippedStatuslineReason) {
+    lines.push(`  ${color.hex("#ff8800")("⚠")}  statusLine — ${color.dim(r.skippedStatuslineReason)}`);
+  } else if (r.replacedStatusline) {
+    lines.push(`  ${tick(true)}  statusLine ${color.dim(`(replaced "${r.replacedStatusline}"`)}`);
+  } else {
+    lines.push(`  ${tick(r.wroteStatusline)}  statusLine`);
+  }
+  lines.push(`  ${tick(r.wroteUserPromptSubmit)}  UserPromptSubmit hook`);
+  lines.push(`  ${tick(r.wrotePreCompact)}  PreCompact hook`);
+  lines.push(`  ${tick(r.wroteSessionStart)}  SessionStart hook`);
+  lines.push(`  ${tick(r.wroteBatonCommand)}  /baton command`);
+  lines.push(`  ${tick(r.wroteDropCommand)}  /drop command`);
+  lines.push(`  ${tick(r.wroteBatonSkill)}  baton skill`);
+
   if (r.migratedCommands.length > 0 || r.migratedSkills.length > 0) {
     lines.push("");
-    lines.push("  migrated:");
-    for (const p of r.migratedCommands) lines.push(`    deleted command: ${p}`);
-    for (const p of r.migratedSkills) lines.push(`    deleted skill dir: ${p}`);
+    for (const p of r.migratedCommands) lines.push(`  ${color.dim("↳ migrated:")} ${color.dim(p)}`);
+    for (const p of r.migratedSkills) lines.push(`  ${color.dim("↳ migrated:")} ${color.dim(p)}`);
   }
+
   lines.push("");
-  if (r.skillsDirCreated) {
-    lines.push("⚠ ~/.claude/skills/ did not exist before. Claude Code must be RESTARTED before it");
-    lines.push("  will pick up the /baton skill. After restart, /baton and the automatic");
-    lines.push("  hard-threshold nudge will both work.");
+  if (r.backupPath) {
+    lines.push(`  ${color.dim("settings backed up →")} ${color.dim(r.backupPath)}`);
     lines.push("");
   }
-  lines.push("Start a new Claude Code session to pick up the statusline and hooks.");
-  lines.push("Inside Claude Code, type /baton to snapshot at any time — or just let");
-  lines.push("baton's hard-threshold nudge inject the baton instructions automatically.");
+  if (r.skillsDirCreated) {
+    lines.push(`  ${color.hex("#ff8800")("⚠")}  ~/.claude/skills/ is new — Claude Code needs a full restart`);
+    lines.push(`     before it picks up the /baton skill.`);
+    lines.push("");
+  }
+  lines.push(`  Restart Claude Code, then type ${color.cyan.bold("/baton")} to snapshot at any time.`);
+  process.stdout.write(lines.join("\n") + "\n");
+}
+
+// --- check ---
+
+export interface CheckReport {
+  version: string;
+  statusLine: { present: boolean; isCurrent: boolean; command: string | null };
+  userPromptSubmit: boolean;
+  preCompact: boolean;
+  sessionStart: boolean;
+  batonCommand: boolean;
+  dropCommand: boolean;
+  batonSkill: boolean;
+  installedAt: string | null;
+  backupPath: string | null;
+  allPresent: boolean;
+}
+
+export function check(): CheckReport {
+  const settings = existsSync(userSettingsPath()) ? loadSettings(userSettingsPath()) : {};
+
+  const statusCmd = settings.statusLine?.command ?? null;
+
+  function hasHook(event: string, cmd: string): boolean {
+    for (const m of settings.hooks?.[event] ?? []) {
+      for (const h of m.hooks ?? []) {
+        if (h.command === cmd) return true;
+      }
+    }
+    return false;
+  }
+
+  const statusPresent = !!statusCmd;
+  const statusCurrent = statusCmd === STATUSLINE_CMD;
+  const ups = hasHook("UserPromptSubmit", HOOK_UPS_CMD);
+  const pc = hasHook("PreCompact", HOOK_PC_CMD);
+  const ss = hasHook("SessionStart", HOOK_SS_CMD);
+  const batonCmd = existsSync(userBatonCommandPath());
+  const dropCmd = existsSync(userDropCommandPath());
+  const skill = existsSync(userBatonSkillPath());
+
+  let installedAt: string | null = null;
+  let backupPath: string | null = null;
+  const manifestPath = installManifestPath();
+  if (existsSync(manifestPath)) {
+    try {
+      const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as InstallManifest;
+      installedAt = manifest.installedAt ?? null;
+      backupPath = manifest.settingsBackupPath ?? null;
+    } catch { /* ignore */ }
+  }
+
+  const allPresent = statusPresent && statusCurrent && ups && pc && ss && batonCmd && dropCmd && skill;
+
+  return {
+    version: VERSION,
+    statusLine: { present: statusPresent, isCurrent: statusCurrent, command: statusCmd },
+    userPromptSubmit: ups,
+    preCompact: pc,
+    sessionStart: ss,
+    batonCommand: batonCmd,
+    dropCommand: dropCmd,
+    batonSkill: skill,
+    installedAt,
+    backupPath,
+    allPresent,
+  };
+}
+
+export function printCheckReport(r: CheckReport): void {
+  const row = (label: string, ok: boolean, note = ""): string => {
+    const icon = ok ? color.green("✓") : color.red("✗");
+    const status = ok ? color.dim("installed") : color.red("missing");
+    const suffix = note ? color.dim(` (${note})`) : "";
+    return `  ${label.padEnd(20)} ${icon}  ${status}${suffix}`;
+  };
+
+  const lines: string[] = [];
+  lines.push(color.cyan.bold(`baton v${r.version}`));
+  lines.push("");
+  lines.push(row("statusLine", r.statusLine.isCurrent,
+    !r.statusLine.isCurrent && r.statusLine.present ? "present but stale — re-run install" : ""));
+  lines.push(row("UserPromptSubmit", r.userPromptSubmit));
+  lines.push(row("PreCompact", r.preCompact));
+  lines.push(row("SessionStart", r.sessionStart));
+  lines.push(row("/baton command", r.batonCommand));
+  lines.push(row("/drop command", r.dropCommand));
+  lines.push(row("baton skill", r.batonSkill));
+  if (r.installedAt) {
+    lines.push("");
+    lines.push(`  ${color.dim("installed")} ${color.dim(r.installedAt.slice(0, 10))}`);
+  }
   process.stdout.write(lines.join("\n") + "\n");
 }

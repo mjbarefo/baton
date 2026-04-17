@@ -19,11 +19,11 @@ bun run src/cli.ts install     # install from source into ~/.claude/
 
 ## Architecture
 
-**Entry point:** `src/cli.ts` — dispatches subcommands (`statusline`, `hook <event>`, `install`, `catch`, `drop`). All subcommands read stdin or CLI args; none are interactive.
+**Entry point:** `src/cli.ts` — dispatches subcommands (`statusline`, `hook <event>`, `install`, `check`, `uninstall`, `catch`, `drop`). Also handles `--version`/`-v`. All subcommands read stdin or CLI args; none are interactive.
 
 **Core modules:**
 
-- `src/config.ts` — shared constants, paths (`userClaudeDir()`, `userSettingsPath()`), threshold values, and the self-locating `buildCommand()` that generates hook commands pointing at the current install location (source-mode uses `bun run`, published uses `node`).
+- `src/config.ts` — shared constants, paths (`userClaudeDir()`, `userSettingsPath()`), threshold values, `VERSION` (read from `package.json` via JSON import), and the self-locating `buildCommand()` that generates hook commands pointing at the current install location (source-mode uses `bun run`, published uses `node`).
 - `src/statusline/` — renders the one-line status bar. `render.ts` orchestrates widgets; `widgets.ts` has individual renderers (model, branch, baton badge, rate limit, duration, cost); `bar.ts` draws the context gauge; `color.ts` wraps ANSI codes.
 - `src/hooks/` — one file per Claude Code hook event:
   - `user-prompt-submit.ts` — nudges Claude to `/baton` when context crosses soft/hard thresholds (defined in `config.ts`). At the hard threshold, injects the full baton protocol as `assistant_mdm`. Also fires a time-based nudge when session age ≥ 5 hours (`SESSION_AGE_NUDGE_MS`) with at least 30k tokens in context (`SESSION_AGE_NUDGE_MIN_TOKENS`); the time nudge only fires when token pressure is `"none"` and is sent at most once per session via the `timeNudgeSent` flag in the state file.
@@ -31,7 +31,7 @@ bun run src/cli.ts install     # install from source into ~/.claude/
   - `session-start.ts` — on `/clear` or resume, reads `BATON.md`, injects it as `additionalContext`, then archives it so the resume is one-shot.
 - `src/baton/` — baton lifecycle: `archive.ts` (move to timestamped archive), `catch.ts` (CLI resume), `drop.ts` (discard baton), `fallback-writer.ts` (deterministic baton from transcript), `template-loader.ts` (reads the `/baton` command template).
 - `src/transcript/` — `read.ts` parses JSONL transcripts; `tokens.ts` extracts token snapshots from the latest assistant usage entry.
-- `src/install/settings-patch.ts` — patches `~/.claude/settings.json` idempotently: merges hooks, sets statusline, writes skill + command files, prunes stale entries, migrates old "handoff" artifacts. Backs up settings before modifying.
+- `src/install/settings-patch.ts` — patches `~/.claude/settings.json` idempotently: merges hooks, sets statusline, writes skill + command files, prunes stale entries, migrates old "handoff" artifacts. Backs up settings before modifying. Also exports `check()` (read-only install state inspection) and `uninstall()`. Output uses ANSI color via `src/statusline/color.ts`. The `--postinstall` flag suppresses output when nothing changed, for use in `package.json`'s `postinstall` script.
 
 **Build:** `scripts/build.ts` uses `bun build` targeting Node, replaces the shebang, and copies `src/baton/template.md` to `dist/baton/template.md`.
 
