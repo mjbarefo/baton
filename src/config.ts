@@ -76,6 +76,10 @@ export function batonArchiveDir(): string {
   return join(userClaudeDir(), "baton", "archive");
 }
 
+export function installManifestPath(): string {
+  return join(userClaudeDir(), "baton", "install-manifest.json");
+}
+
 export const SUBCOMMANDS = {
   statusline: "statusline",
   hookUps: "hook user-prompt-submit",

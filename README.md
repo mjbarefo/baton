@@ -81,6 +81,7 @@ baton statusline
 baton hook user-prompt-submit
 baton hook pre-compact
 baton hook session-start
+baton uninstall
 baton catch
 baton drop
 ```

@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 import {
   SUBCOMMANDS,
   buildCommand,
+  installManifestPath,
   userBatonCommandPath,
   userBatonSkillDir,
   userBatonSkillPath,
@@ -174,6 +175,18 @@ function pruneStaleBatonHooks(settings: Settings, currentCommands: Set<string>):
   }
 }
 
+function settingsContainBatonEntries(settings: Settings): boolean {
+  if (isBatonCommand(settings.statusLine?.command)) return true;
+  for (const matchers of Object.values(settings.hooks ?? {})) {
+    for (const matcher of matchers) {
+      for (const hook of matcher.hooks ?? []) {
+        if (isBatonCommand(hook.command)) return true;
+      }
+    }
+  }
+  return false;
+}
+
 function writeFileIfChanged(path: string, body: string): boolean {
   if (existsSync(path)) {
     const existing = readFileSync(path, "utf8");
@@ -233,7 +246,7 @@ function writeBatonSkill(skillsDir: string, skillDir: string, skillPath: string,
 
 function startsWithFrontmatter(path: string, expectedName: string): boolean {
   try {
-    const buf = readFileSync(path, "utf8").slice(0, 80);
+    const buf = readFileSync(path, "utf8").slice(0, 80).replace(/\r\n/g, "\n");
     return buf.startsWith(`---\nname: ${expectedName}\n`);
   } catch {
     return false;
@@ -282,6 +295,178 @@ function warnIfBunMissing(): void {
   }
 }
 
+interface InstallManifest {
+  installedAt: string;
+  settingsBackupPath: string | null;
+}
+
+/**
+ * Write the install manifest on first install only. On reinstall, the existing
+ * manifest already points at the pre-baton settings.json backup; overwriting it
+ * would capture a backup whose contents are already polluted with baton entries
+ * and make `uninstall` a silent no-op that leaves hooks/statusLine in place.
+ * Returns true if a new manifest was written, false if one already existed.
+ */
+function writeInstallManifest(backupPath: string | null): boolean {
+  const manifestPath = installManifestPath();
+  if (existsSync(manifestPath)) return false;
+  mkdirSync(dirname(manifestPath), { recursive: true });
+  const manifest: InstallManifest = {
+    installedAt: new Date().toISOString(),
+    settingsBackupPath: backupPath,
+  };
+  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n", "utf8");
+  return true;
+}
+
+export interface UninstallReport {
+  restoredSettingsFrom: string | null;
+  fallbackSurgical: boolean;
+  removedFiles: string[];
+  skippedFiles: { path: string; reason: string }[];
+}
+
+/**
+ * Delete `path` only if its frontmatter still identifies it as a baton-owned
+ * artifact (matching `expectedName`). If the user has replaced or heavily
+ * edited the file, we surface it in `skippedFiles` instead of silently
+ * clobbering their work.
+ */
+function removeIfBatonOwned(
+  path: string,
+  expectedName: string,
+  removed: string[],
+  skipped: { path: string; reason: string }[],
+): void {
+  if (!existsSync(path)) {
+    skipped.push({ path, reason: "not found" });
+    return;
+  }
+  if (!startsWithFrontmatter(path, expectedName)) {
+    skipped.push({ path, reason: "user-modified (frontmatter no longer matches) — left in place" });
+    return;
+  }
+  rmSync(path);
+  removed.push(path);
+}
+
+export function uninstall(): UninstallReport {
+  const manifestPath = installManifestPath();
+  let manifest: InstallManifest | null = null;
+  if (existsSync(manifestPath)) {
+    try {
+      manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as InstallManifest;
+    } catch { /* ignore — fall through to surgical */ }
+  }
+
+  const settingsPath = userSettingsPath();
+  let restoredSettingsFrom: string | null = null;
+  let fallbackSurgical = false;
+
+  if (manifest?.settingsBackupPath && existsSync(manifest.settingsBackupPath)) {
+    copyFileSync(manifest.settingsBackupPath, settingsPath);
+    restoredSettingsFrom = manifest.settingsBackupPath;
+  } else if (existsSync(settingsPath)) {
+    fallbackSurgical = true;
+    const settings = loadSettings(settingsPath);
+    if (settings.hooks) {
+      for (const [event, matchers] of Object.entries(settings.hooks)) {
+        const filtered = matchers
+          .map((m) => ({ ...m, hooks: (m.hooks ?? []).filter((h) => !isBatonCommand(h.command ?? "")) }))
+          .filter((m) => (m.hooks ?? []).length > 0);
+        if (filtered.length === 0) delete settings.hooks[event];
+        else settings.hooks[event] = filtered;
+      }
+      if (Object.keys(settings.hooks).length === 0) delete settings.hooks;
+    }
+    if (isBatonCommand(settings.statusLine?.command)) {
+      delete settings.statusLine;
+    }
+    writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n", "utf8");
+  }
+
+  const removedFiles: string[] = [];
+  const skippedFiles: { path: string; reason: string }[] = [];
+
+  // Slash commands: each lives in a shared ~/.claude/commands/ directory, so
+  // we only delete the file if its frontmatter still matches what we wrote.
+  removeIfBatonOwned(userBatonCommandPath(), "baton", removedFiles, skippedFiles);
+  removeIfBatonOwned(userDropCommandPath(), "drop", removedFiles, skippedFiles);
+
+  // Skill directory: gated two ways. SKILL.md must still be baton-owned, AND
+  // the directory must contain nothing unexpected. If either check fails we
+  // leave the whole directory alone and surface it — recursive deletion of a
+  // user-modified directory is unrecoverable.
+  const skillDir = userBatonSkillDir();
+  const skillPath = userBatonSkillPath();
+  if (existsSync(skillDir)) {
+    const skillOwned = existsSync(skillPath) && startsWithFrontmatter(skillPath, "baton");
+    let entries: string[];
+    try {
+      entries = readdirSync(skillDir);
+    } catch {
+      entries = [];
+    }
+    const extras = entries.filter((e) => e !== "SKILL.md");
+    if (!skillOwned) {
+      skippedFiles.push({
+        path: skillPath,
+        reason: "user-modified (frontmatter no longer matches) — left in place",
+      });
+      skippedFiles.push({
+        path: skillDir,
+        reason: "refusing recursive delete — SKILL.md is not baton-owned",
+      });
+    } else if (extras.length > 0) {
+      skippedFiles.push({
+        path: skillDir,
+        reason: `refusing recursive delete — contains unexpected files: ${extras.join(", ")}`,
+      });
+    } else {
+      rmSync(skillPath);
+      removedFiles.push(skillPath);
+      try {
+        rmSync(skillDir, { recursive: true });
+      } catch { /* ignore */ }
+    }
+  } else {
+    skippedFiles.push({ path: skillPath, reason: "not found" });
+  }
+
+  if (existsSync(manifestPath)) rmSync(manifestPath);
+
+  return { restoredSettingsFrom, fallbackSurgical, removedFiles, skippedFiles };
+}
+
+export function printUninstallReport(r: UninstallReport): void {
+  const lines: string[] = [];
+  lines.push("baton uninstall — summary");
+  lines.push("");
+  if (r.restoredSettingsFrom) {
+    lines.push(`  settings.json: restored from backup`);
+    lines.push(`    ${r.restoredSettingsFrom}`);
+    lines.push(`  ⚠  Any settings changes made after baton was installed are not in this backup.`);
+    lines.push(`     Inspect the backup file above if you need to recover them.`);
+  } else if (r.fallbackSurgical) {
+    lines.push(`  settings.json: baton entries removed (no backup found — surgical removal)`);
+  } else {
+    lines.push(`  settings.json: no changes (file not found)`);
+  }
+  lines.push("");
+  for (const f of r.removedFiles) lines.push(`  removed: ${f}`);
+  for (const s of r.skippedFiles) lines.push(`  skipped: ${s.path} (${s.reason})`);
+  const preserved = r.skippedFiles.filter((s) => s.reason !== "not found");
+  if (preserved.length > 0) {
+    lines.push("");
+    lines.push("⚠  The following artifacts were left in place because they no longer look like");
+    lines.push("   baton-owned files. Inspect and remove them manually if desired:");
+    for (const s of preserved) lines.push(`     ${s.path}`);
+  }
+  lines.push("");
+  lines.push("baton has been uninstalled. Restart Claude Code for changes to take effect.");
+  process.stdout.write(lines.join("\n") + "\n");
+}
+
 export function install(opts: InstallOptions = {}): InstallReport {
   warnIfBunMissing();
   const claudeDir = userClaudeDir();
@@ -294,8 +479,9 @@ export function install(opts: InstallOptions = {}): InstallReport {
   const batonSkillPath = userBatonSkillPath();
 
   mkdirSync(claudeDir, { recursive: true });
-  const backupPath = backup(settingsPath);
   const settings = loadSettings(settingsPath);
+  const hadBatonEntriesBeforeInstall = settingsContainBatonEntries(settings);
+  const backupPath = backup(settingsPath);
 
   const { migratedCommands, migratedSkills } = migrateOldArtifacts(commandsDir, skillsDir);
 
@@ -315,6 +501,8 @@ export function install(opts: InstallOptions = {}): InstallReport {
   const wroteBatonCommand = writeBatonCommand(commandsDir, batonCmdPath, templateBody);
   const wroteDropCommand = writeDropCommand(commandsDir, dropCmdPath);
   const skillResult = writeBatonSkill(skillsDir, batonSkillDir, batonSkillPath, templateBody);
+
+  writeInstallManifest(hadBatonEntriesBeforeInstall ? null : backupPath);
 
   return {
     backupPath,

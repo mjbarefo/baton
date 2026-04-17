@@ -3,7 +3,7 @@ import { renderStatusline } from "./statusline/render.ts";
 import { runUserPromptSubmitHook } from "./hooks/user-prompt-submit.ts";
 import { runPreCompactHook } from "./hooks/pre-compact.ts";
 import { runSessionStartHook } from "./hooks/session-start.ts";
-import { install, printReport } from "./install/settings-patch.ts";
+import { install, printReport, uninstall, printUninstallReport } from "./install/settings-patch.ts";
 import { catchBaton } from "./baton/catch.ts";
 import { drop } from "./baton/drop.ts";
 
@@ -27,6 +27,7 @@ function usage(): void {
       "  baton hook session-start          Hook handler (pipe hook payload on stdin)",
       "  baton install [--force]           Patch ~/.claude/settings.json and install /baton command",
       "                                   --force replaces an existing non-baton statusLine (e.g. ccstatusline)",
+      "  baton uninstall                   Remove hooks/statusLine/commands; restore settings.json from backup",
       "  baton catch [--dry-run]           Resume from the nearest .claude/baton/BATON.md",
       "  baton drop                        Archive the nearest BATON.md so /clear starts fresh",
       "",
@@ -64,6 +65,11 @@ async function main(): Promise<number> {
       const force = args.includes("--force");
       const report = install({ force });
       printReport(report);
+      return 0;
+    }
+    case "uninstall": {
+      const report = uninstall();
+      printUninstallReport(report);
       return 0;
     }
     case "catch": {
