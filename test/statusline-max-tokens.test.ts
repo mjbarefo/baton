@@ -16,16 +16,23 @@ afterEach(() => {
   rmSync(STATE_DIR, { recursive: true, force: true });
 });
 
+function ctxWindow(tokens: number, max: number) {
+  return {
+    context_window_size: max,
+    current_usage: { input_tokens: tokens, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+  };
+}
+
 function statusPayload(overrides: object = {}): string {
   return JSON.stringify({
     session_id: "test-session",
-    context_window: { tokens: 50_000, max_tokens: 128_000 },
+    context_window: ctxWindow(50_000, 128_000),
     ...overrides,
   });
 }
 
-describe("renderStatusline — max_tokens persistence", () => {
-  test("persists max_tokens to state file when payload has context_window", async () => {
+describe("renderStatusline — context_window_size persistence", () => {
+  test("persists context_window_size to state file when payload has context_window", async () => {
     await renderStatusline(statusPayload({ session_id: "persist-1" }));
 
     const statePath = join(STATE_DIR, "persist-1.json");
@@ -42,7 +49,7 @@ describe("renderStatusline — max_tokens persistence", () => {
       JSON.stringify({ level: "soft", maxTokens: 200_000 }),
     );
 
-    await renderStatusline(statusPayload({ session_id: sessionId, context_window: { tokens: 50_000, max_tokens: 128_000 } }));
+    await renderStatusline(statusPayload({ session_id: sessionId, context_window: ctxWindow(50_000, 128_000) }));
 
     const state = JSON.parse(readFileSync(join(STATE_DIR, `${sessionId}.json`), "utf8"));
     expect(state.level).toBe("soft");
@@ -51,46 +58,74 @@ describe("renderStatusline — max_tokens persistence", () => {
 
   test("does not write state file when payload has no session_id", async () => {
     await renderStatusline(
-      JSON.stringify({ context_window: { tokens: 50_000, max_tokens: 128_000 } }),
+      JSON.stringify({ context_window: ctxWindow(50_000, 128_000) }),
     );
     expect(existsSync(STATE_DIR)).toBe(false);
   });
 
-  test("does not write state file when payload has no max_tokens", async () => {
+  test("does not write state file when payload has no context_window_size", async () => {
     await renderStatusline(
-      JSON.stringify({ session_id: "no-max", context_window: { tokens: 50_000 } }),
+      JSON.stringify({
+        session_id: "no-max",
+        context_window: { current_usage: { input_tokens: 50_000 } },
+      }),
     );
     expect(existsSync(join(STATE_DIR, "no-max.json"))).toBe(false);
   });
 
   test("in-memory cache skips redundant writes for same session + max", async () => {
     const sessionId = "cache-test";
-    await renderStatusline(statusPayload({ session_id: sessionId, context_window: { tokens: 10_000, max_tokens: 128_000 } }));
+    await renderStatusline(statusPayload({ session_id: sessionId, context_window: ctxWindow(10_000, 128_000) }));
 
     // Corrupt the file — if cache is working, the second render won't overwrite it.
     const statePath = join(STATE_DIR, `${sessionId}.json`);
     writeFileSync(statePath, "CORRUPTED");
 
-    await renderStatusline(statusPayload({ session_id: sessionId, context_window: { tokens: 20_000, max_tokens: 128_000 } }));
+    await renderStatusline(statusPayload({ session_id: sessionId, context_window: ctxWindow(20_000, 128_000) }));
 
     expect(readFileSync(statePath, "utf8")).toBe("CORRUPTED");
   });
 
-  test("different max_tokens busts the in-memory cache and re-writes", async () => {
+  test("different context_window_size busts the in-memory cache and re-writes", async () => {
     const sessionId = "cache-bust";
-    await renderStatusline(statusPayload({ session_id: sessionId, context_window: { tokens: 10_000, max_tokens: 128_000 } }));
-    await renderStatusline(statusPayload({ session_id: sessionId, context_window: { tokens: 10_000, max_tokens: 200_000 } }));
+    await renderStatusline(statusPayload({ session_id: sessionId, context_window: ctxWindow(10_000, 128_000) }));
+    await renderStatusline(statusPayload({ session_id: sessionId, context_window: ctxWindow(10_000, 200_000) }));
 
     const state = JSON.parse(readFileSync(join(STATE_DIR, `${sessionId}.json`), "utf8"));
     expect(state.maxTokens).toBe(200_000);
   });
 
-  test("renders correctly with a non-default max_tokens", async () => {
+  test("renders correctly with a non-default context_window_size", async () => {
     const line = await renderStatusline(
-      JSON.stringify({ context_window: { tokens: 64_000, max_tokens: 128_000 } }),
+      JSON.stringify({ context_window: ctxWindow(64_000, 128_000) }),
     );
     expect(line).toContain("128k");
     expect(line).not.toContain("200k");
+  });
+
+  test("renders correctly with extended 1M context", async () => {
+    const line = await renderStatusline(
+      JSON.stringify({ context_window: ctxWindow(300_000, 1_000_000) }),
+    );
+    expect(line).toContain("1000k");
+  });
+
+  test("sums current_usage fields for token total", async () => {
+    const line = await renderStatusline(
+      JSON.stringify({
+        context_window: {
+          context_window_size: 200_000,
+          current_usage: {
+            input_tokens: 10_000,
+            cache_read_input_tokens: 40_000,
+            cache_creation_input_tokens: 5_000,
+            output_tokens: 999_999, // output is NOT re-fed, must be excluded
+          },
+        },
+      }),
+    );
+    // 10k + 40k + 5k = 55k. Output excluded; must be well under 200k zone escalation.
+    expect(line).toContain("55.0k/200k");
   });
 
   test("malformed JSON still renders without crashing", async () => {

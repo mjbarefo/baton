@@ -21,7 +21,19 @@ interface StatusJSON {
   model?: { id?: string; display_name?: string };
   workspace?: { current_dir?: string; project_dir?: string };
   cost?: { total_cost_usd?: number; total_duration_ms?: number };
-  context_window?: { tokens?: number; max_tokens?: number };
+  // Real Claude Code schema: context_window_size is the max (200k default,
+  // 1M for extended-context models). current_usage holds per-call token
+  // counts from the most recent API response; we sum input + cache_*
+  // to match the transcript-based total (output excluded — not re-fed).
+  context_window?: {
+    context_window_size?: number;
+    current_usage?: {
+      input_tokens?: number;
+      output_tokens?: number;
+      cache_creation_input_tokens?: number;
+      cache_read_input_tokens?: number;
+    } | null;
+  };
   worktree?: { branch?: string; is_dirty?: boolean };
   rate_limits?: {
     five_hour?: RateLimit;
@@ -85,16 +97,23 @@ export async function renderStatusline(raw: string): Promise<string> {
     // Malformed stdin — render an empty line rather than crash Claude Code's UI.
   }
 
-  const payloadMax = data.context_window?.max_tokens;
+  const payloadMax = data.context_window?.context_window_size;
   const max = payloadMax || DEFAULT_MAX;
 
-  // Persist real max_tokens to the session state file so the UserPromptSubmit
-  // hook can read it instead of hardcoding 200k.
+  // Persist real context_window_size to the session state file so the
+  // UserPromptSubmit hook can read it instead of hardcoding 200k.
   if (data.session_id && payloadMax) {
     persistMaxTokensToState(data.session_id, payloadMax);
   }
 
-  let tokens = data.context_window?.tokens;
+  const usage = data.context_window?.current_usage;
+  let tokens: number | undefined;
+  if (usage) {
+    tokens =
+      (usage.input_tokens ?? 0) +
+      (usage.cache_creation_input_tokens ?? 0) +
+      (usage.cache_read_input_tokens ?? 0);
+  }
   if (tokens == null && data.transcript_path) {
     tokens = tokenTotalFromTranscript(data.transcript_path);
   }
