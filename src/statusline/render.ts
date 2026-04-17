@@ -104,7 +104,7 @@ export async function renderStatusline(raw: string): Promise<string> {
     renderModel(data.model?.display_name || data.model?.id),
     renderBranch(data.worktree?.branch, data.worktree?.is_dirty),
     renderBar(tokens, max),
-    renderBatonBadge(data.cwd, data.session_id),
+    renderBatonBadge(data.cwd, data.session_id, max),
     renderRateLimit5h(data.rate_limits?.five_hour),
     renderDuration(data.cost?.total_duration_ms),
     renderCost(data.cost?.total_cost_usd),

@@ -24,9 +24,9 @@ interface StateFile {
   timeNudgeSent?: boolean;
 }
 
-function levelFor(tokens: number): NudgeLevel {
-  if (tokens >= THRESHOLDS.NUDGE_HARD) return "hard";
-  if (tokens >= THRESHOLDS.NUDGE_SOFT) return "soft";
+function levelFor(tokens: number, maxTokens: number): NudgeLevel {
+  if (tokens >= Math.floor(THRESHOLDS.NUDGE_HARD * maxTokens)) return "hard";
+  if (tokens >= Math.floor(THRESHOLDS.NUDGE_SOFT * maxTokens)) return "soft";
   return "none";
 }
 
@@ -38,7 +38,12 @@ function readState(path: string): StateFile {
     // without a level field. Treat missing/invalid level as "none".
     const level: NudgeLevel =
       parsed.level === "soft" || parsed.level === "hard" ? parsed.level : "none";
-    return { ...parsed, level };
+    // Normalize maxTokens: guard against 0, NaN, negative, or non-number values
+    // that would cause levelFor to over-fire (0 → always hard) or never fire (NaN).
+    const raw = parsed.maxTokens;
+    const maxTokens =
+      typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? raw : undefined;
+    return { ...parsed, level, maxTokens };
   } catch {
     return { level: "none" };
   }
@@ -99,7 +104,7 @@ export async function runUserPromptSubmitHook(raw: string): Promise<void> {
   const maxTokens = prior.maxTokens ?? DEFAULT_MAX_TOKENS;
 
   // --- Token nudge ---
-  const tokenLevel = levelFor(snap.total);
+  const tokenLevel = levelFor(snap.total, maxTokens);
   const tokenNudgeShouldFire =
     (tokenLevel === "soft" && prior.level === "none") ||
     (tokenLevel === "hard" && prior.level !== "hard");

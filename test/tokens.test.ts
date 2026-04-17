@@ -100,14 +100,23 @@ describe("snapshotFromTranscript", () => {
 });
 
 describe("zoneFor", () => {
-  test("boundaries", () => {
-    expect(zoneFor(0)).toBe("green");
-    expect(zoneFor(79_999)).toBe("green");
-    expect(zoneFor(80_000)).toBe("yellow");
-    expect(zoneFor(109_999)).toBe("yellow");
-    expect(zoneFor(110_000)).toBe("orange");
-    expect(zoneFor(124_999)).toBe("orange");
-    expect(zoneFor(125_000)).toBe("red");
-    expect(zoneFor(200_000)).toBe("red");
+  const MAX = 200_000;
+  test("boundaries at 200k window", () => {
+    expect(zoneFor(0, MAX)).toBe("green");
+    expect(zoneFor(79_999, MAX)).toBe("green");
+    expect(zoneFor(80_000, MAX)).toBe("yellow");
+    expect(zoneFor(109_999, MAX)).toBe("yellow");
+    expect(zoneFor(110_000, MAX)).toBe("orange");
+    expect(zoneFor(124_999, MAX)).toBe("orange");
+    expect(zoneFor(125_000, MAX)).toBe("red");
+    expect(zoneFor(200_000, MAX)).toBe("red");
+  });
+
+  test("scales with non-200k window", () => {
+    const M = 128_000;
+    expect(zoneFor(0, M)).toBe("green");
+    expect(zoneFor(Math.round(0.40 * M) - 1, M)).toBe("green");
+    expect(zoneFor(Math.round(0.40 * M), M)).toBe("yellow");
+    expect(zoneFor(Math.round(0.625 * M), M)).toBe("red");
   });
 });

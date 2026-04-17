@@ -5,10 +5,10 @@ const BLOCKS = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉", "█"];
 
 export type Zone = "green" | "yellow" | "orange" | "red";
 
-export function zoneFor(tokens: number): Zone {
-  if (tokens >= THRESHOLDS.ORANGE_MAX) return "red";
-  if (tokens >= THRESHOLDS.YELLOW_MAX) return "orange";
-  if (tokens >= THRESHOLDS.GREEN_MAX) return "yellow";
+export function zoneFor(tokens: number, max: number): Zone {
+  if (tokens >= Math.floor(THRESHOLDS.ORANGE_MAX * max)) return "red";
+  if (tokens >= Math.floor(THRESHOLDS.YELLOW_MAX * max)) return "orange";
+  if (tokens >= Math.floor(THRESHOLDS.GREEN_MAX * max)) return "yellow";
   return "green";
 }
 
@@ -36,7 +36,7 @@ export function formatK(tokens: number): string {
  * Width is the total cell count; the tick replaces one cell, keeping the bar width stable.
  */
 export function renderBar(tokens: number, max: number, width = 12): string {
-  const zone = zoneFor(tokens);
+  const zone = zoneFor(tokens, max);
   if (zone === "red") {
     return paintZone("red", "⚠ BATON NOW");
   }
@@ -54,7 +54,7 @@ export function renderBar(tokens: number, max: number, width = 12): string {
 
   // Overlay the baton threshold tick. Once the bar has passed it, the tick is
   // omitted — the color already signals that you're past.
-  const tickRatio = THRESHOLDS.ORANGE_MAX / max;
+  const tickRatio = THRESHOLDS.ORANGE_MAX;
   if (tickRatio > 0 && tickRatio < 1) {
     const tickIdx = Math.min(width - 1, Math.round(tickRatio * width));
     if (cells[tickIdx] !== "█") cells[tickIdx] = color.dim("┊");

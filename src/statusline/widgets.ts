@@ -32,7 +32,9 @@ export function renderBranch(branch: string | undefined, dirty: boolean | undefi
  *  3. Soft nudge has fired this session → ⚠ soft
  *  4. Idle → →125k (shows where the hard limit sits)
  */
-export function renderBatonBadge(cwd: string | undefined, sessionId: string | undefined): string {
+const DEFAULT_MAX_TOKENS = 200_000;
+
+export function renderBatonBadge(cwd: string | undefined, sessionId: string | undefined, max: number = DEFAULT_MAX_TOKENS): string {
   if (cwd) {
     const batonPath = join(cwd, BATON_REL_PATH);
     if (existsSync(batonPath)) {
@@ -60,7 +62,7 @@ export function renderBatonBadge(cwd: string | undefined, sessionId: string | un
     }
   }
 
-  return color.blue.dim(`→${formatK(THRESHOLDS.ORANGE_MAX)}`);
+  return color.blue.dim(`→${formatK(Math.round(THRESHOLDS.ORANGE_MAX * max))}`);
 }
 
 export function renderRateLimit5h(rateLimit: RateLimit | undefined): string | null {

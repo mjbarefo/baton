@@ -5,12 +5,14 @@ import { fileURLToPath } from "node:url";
 // ORANGE_MAX intentionally sits above NUDGE_HARD: the visual bar escalates after
 // the hard nudge fires, not before. The nudge is the primary signal; the color
 // change is a trailing indicator for sessions where Claude hasn't acted yet.
+// All values are ratios (0–1) of the model's actual context window so they
+// scale correctly regardless of max_tokens (200k, 128k, extended, etc.).
 export const THRESHOLDS = {
-  GREEN_MAX: 80_000,
-  YELLOW_MAX: 110_000,
-  ORANGE_MAX: 125_000,
-  NUDGE_SOFT: 110_000,
-  NUDGE_HARD: 120_000,
+  GREEN_MAX: 0.40,   // was 80k  on 200k window
+  YELLOW_MAX: 0.55,  // was 110k on 200k window
+  ORANGE_MAX: 0.625, // was 125k on 200k window
+  NUDGE_SOFT: 0.55,  // was 110k on 200k window
+  NUDGE_HARD: 0.60,  // was 120k on 200k window
 } as const;
 
 /** Nudge toward /baton after a session has been open this long (5 hours). */

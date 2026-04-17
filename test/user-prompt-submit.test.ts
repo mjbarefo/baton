@@ -152,7 +152,8 @@ describe("runUserPromptSubmitHook — state normalization regression", () => {
     );
     const state = JSON.parse(readFileSync(join(STATE_DIR, "norm-preserve.json"), "utf8"));
     expect(state.maxTokens).toBe(128_000);
-    expect(state.level).toBe("soft");
+    // 112k / 128k = 87.5% — above the 60% hard threshold for this window size
+    expect(state.level).toBe("hard");
   });
 });
 
@@ -265,7 +266,8 @@ describe("runUserPromptSubmitHook — max_tokens sourcing", () => {
 
     const statePath = join(STATE_DIR, `${sessionId}.json`);
     const written = JSON.parse(readFileSync(statePath, "utf8"));
-    expect(written.level).toBe("soft");
+    // 112k / 128k = 87.5% — above the 60% hard threshold for this window size
+    expect(written.level).toBe("hard");
     expect(written.maxTokens).toBe(128_000);
   });
 
@@ -298,5 +300,37 @@ describe("runUserPromptSubmitHook — max_tokens sourcing", () => {
       JSON.stringify({ session_id: sessionId, transcript_path: transcript, cwd: tmp }),
     );
     expect(existsSync(join(STATE_DIR, `${sessionId}.json`))).toBe(false);
+  });
+});
+
+describe("runUserPromptSubmitHook — maxTokens sanitization", () => {
+  test("maxTokens: 0 falls back to 200k default, does not over-fire hard nudge", async () => {
+    writeStateFile("max-zero", { maxTokens: 0 });
+    const transcript = writeTranscript(50_000);
+    await runUserPromptSubmitHook(
+      JSON.stringify({ session_id: "max-zero", transcript_path: transcript, cwd: tmp }),
+    );
+    // 50k / 200k = 25% — below soft threshold; no nudge should fire
+    expect(stdoutCapture).toBe("");
+  });
+
+  test("maxTokens: NaN falls back to 200k default, does not suppress nudges", async () => {
+    writeStateFile("max-nan", { maxTokens: NaN });
+    const transcript = writeTranscript(112_000);
+    await runUserPromptSubmitHook(
+      JSON.stringify({ session_id: "max-nan", transcript_path: transcript, cwd: tmp }),
+    );
+    // 112k / 200k = 56% — above soft threshold; nudge should fire
+    const out = JSON.parse(stdoutCapture);
+    expect(out.hookSpecificOutput.additionalContext).toContain("[baton]");
+  });
+
+  test("maxTokens: negative falls back to 200k default", async () => {
+    writeStateFile("max-neg", { maxTokens: -50_000 });
+    const transcript = writeTranscript(50_000);
+    await runUserPromptSubmitHook(
+      JSON.stringify({ session_id: "max-neg", transcript_path: transcript, cwd: tmp }),
+    );
+    expect(stdoutCapture).toBe("");
   });
 });
