@@ -19,7 +19,7 @@
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "bun run build",
-    "postinstall": "node dist/cli.js install --postinstall"
+    "postinstall": "node -e \"require('fs').existsSync('dist/cli.js') && require('child_process').execFileSync('node', ['dist/cli.js', 'install', '--postinstall'], {stdio:'inherit'})\" || true"
   },
   "dependencies": {},
   "devDependencies": {
