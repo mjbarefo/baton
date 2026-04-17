@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { execSync } from "node:child_process";
 import { join } from "node:path";
 import { renderBar } from "./bar.ts";
 import { color } from "./color.ts";
@@ -40,6 +41,65 @@ interface StatusJSON {
 
 const DEFAULT_MAX = 200_000;
 const SEP_TEXT = " │ ";
+
+interface GitCache {
+  dir: string;
+  headMtimeMs: number;
+  indexMtimeMs: number;
+  branch?: string;
+  dirty: boolean;
+}
+let cachedGit: GitCache | null = null;
+
+function findGitDir(start: string): string | null {
+  let dir = start;
+  for (let i = 0; i < 20; i++) {
+    const gitPath = join(dir, ".git");
+    if (existsSync(gitPath)) return gitPath;
+    const parent = join(dir, "..");
+    if (parent === dir) return null;
+    dir = parent;
+  }
+  return null;
+}
+
+function gitBranchInfo(cwd: string | undefined): { branch?: string; dirty?: boolean } {
+  const dir = cwd || process.cwd();
+  try {
+    const gitDir = findGitDir(dir);
+    if (!gitDir) return {};
+
+    let headMtimeMs = 0;
+    let indexMtimeMs = 0;
+    try { headMtimeMs = statSync(join(gitDir, "HEAD")).mtimeMs; } catch { return {}; }
+    try { indexMtimeMs = statSync(join(gitDir, "index")).mtimeMs; } catch { /* fresh repo, no index yet */ }
+
+    if (
+      cachedGit?.dir === dir &&
+      cachedGit.headMtimeMs === headMtimeMs &&
+      cachedGit.indexMtimeMs === indexMtimeMs
+    ) {
+      return { branch: cachedGit.branch, dirty: cachedGit.dirty };
+    }
+
+    let branch: string | undefined;
+    try {
+      branch = execSync("git symbolic-ref --short HEAD", { cwd: dir, stdio: ["ignore", "pipe", "ignore"], timeout: 1000 })
+        .toString().trim();
+    } catch { /* detached HEAD */ }
+
+    let dirty = false;
+    try {
+      dirty = execSync("git status --porcelain", { cwd: dir, stdio: ["ignore", "pipe", "ignore"], timeout: 1000 })
+        .toString().trim().length > 0;
+    } catch { /* ignore */ }
+
+    cachedGit = { dir, headMtimeMs, indexMtimeMs, branch, dirty };
+    return { branch, dirty };
+  } catch {
+    return {};
+  }
+}
 let cachedSnapshot: { path: string; mtimeMs: number; total: number } | null = null;
 
 // Cache the last state-file write so we skip I/O when maxTokens is stable.
@@ -111,9 +171,12 @@ export async function renderStatusline(raw: string): Promise<string> {
     tokens = tokenTotalFromTranscript(data.transcript_path);
   }
 
+  const worktreeBranch = data.worktree?.branch;
+  const git = worktreeBranch ? { branch: worktreeBranch, dirty: data.worktree?.is_dirty } : gitBranchInfo(data.cwd);
+
   const parts: (string | null)[] = [
     renderModel(data.model?.display_name || data.model?.id),
-    renderBranch(data.worktree?.branch, data.worktree?.is_dirty),
+    renderBranch(git.branch, git.dirty),
     renderBar(tokens, max),
     renderBatonBadge(data.cwd, data.session_id, max),
     renderRateLimit5h(data.rate_limits?.five_hour),

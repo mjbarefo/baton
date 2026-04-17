@@ -11,26 +11,28 @@ Bun is only required for local development from this repository.
 
 ## Install
 
-Run the installer directly:
-
 ```bash
-npx -y ccbaton@latest
+npx ccbaton@latest
 ```
 
 Or with Bun:
 
 ```bash
-bunx -y ccbaton@latest
+bunx ccbaton@latest
 ```
 
 The installer patches `~/.claude/settings.json` with self-locating commands that keep working after `npx`/`bunx` exits. Published installs use the bundled Node.js CLI; source-tree installs use `bun run src/cli.ts`.
+
+If you install globally (`npm install -g ccbaton`), the `postinstall` script runs the installer automatically.
+
+What gets installed:
 
 - a statusline command
 - `UserPromptSubmit`, `PreCompact`, and `SessionStart` hooks
 - `/baton` and `/drop` slash commands
 - the baton skill at `~/.claude/skills/baton/SKILL.md`
 
-After installing, restart Claude Code if the installer says the top-level skills directory was newly created.
+After installing, restart Claude Code. If the installer warns that `~/.claude/skills/` was newly created, a full restart is required before the `/baton` skill is available.
 
 ## Daily Flow
 
@@ -73,16 +75,20 @@ SESSION_AGE_NUDGE_MS=10800000 claude  # nudge after 3 hours instead
 
 ## Commands
 
-After installing from npm, the `baton` binary is available through npm's normal bin resolution:
+```bash
+npx ccbaton@latest          # install or upgrade
+npx ccbaton check           # verify current install state (exits 1 if anything missing)
+npx ccbaton uninstall       # remove hooks, statusline, commands; restore settings.json from backup
+```
+
+After installing globally, the `baton` binary is available directly:
 
 ```bash
-baton install
-baton statusline
-baton hook user-prompt-submit
-baton hook pre-compact
-baton hook session-start
+baton --version
+baton install [--force]     # --force replaces a non-baton statusLine
 baton uninstall
-baton catch
+baton check
+baton catch [--dry-run]
 baton drop
 ```
 

@@ -1,5 +1,5 @@
 import { BATON_REL_PATH } from "../config.ts";
-import { archiveBaton } from "./archive.ts";
+import { archiveBaton, PartialArchiveError } from "./archive.ts";
 import { findBaton } from "./find.ts";
 
 export interface DropOptions {
@@ -19,6 +19,13 @@ export function drop(opts: DropOptions): number {
     process.stdout.write(`baton drop: archived ${baton} → ${archivePath}\n`);
     return 0;
   } catch (err) {
+    if (err instanceof PartialArchiveError) {
+      process.stdout.write(`baton drop: archived ${baton} → ${err.archivePath}\n`);
+      process.stderr.write(
+        `baton drop: source file could not be removed — it may re-inject on next /clear. Run /drop again.\n`,
+      );
+      return 1;
+    }
     process.stderr.write(`baton drop: failed to archive ${baton}: ${String(err)}\n`);
     return 1;
   }

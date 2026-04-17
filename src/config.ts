@@ -1,6 +1,9 @@
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import pkg from "../package.json" with { type: "json" };
+
+export const VERSION: string = pkg.version;
 
 // ORANGE_MAX intentionally sits above NUDGE_HARD: the visual bar escalates after
 // the hard nudge fires, not before. The nudge is the primary signal; the color

@@ -3,7 +3,8 @@ import { renderStatusline } from "./statusline/render.ts";
 import { runUserPromptSubmitHook } from "./hooks/user-prompt-submit.ts";
 import { runPreCompactHook } from "./hooks/pre-compact.ts";
 import { runSessionStartHook } from "./hooks/session-start.ts";
-import { install, printReport, uninstall, printUninstallReport } from "./install/settings-patch.ts";
+import { install, printReport, uninstall, printUninstallReport, check, printCheckReport } from "./install/settings-patch.ts";
+import { VERSION } from "./config.ts";
 import { catchBaton } from "./baton/catch.ts";
 import { drop } from "./baton/drop.ts";
 
@@ -17,19 +18,25 @@ async function readStdin(): Promise<string> {
 function usage(): void {
   process.stderr.write(
     [
-      "baton — context-aware session baton for Claude Code",
+      `baton v${VERSION} — context-aware session baton for Claude Code`,
       "",
-      "Usage:",
-      "  baton                             Install into Claude Code",
-      "  baton statusline                  Render statusline (Claude Code pipes StatusJSON on stdin)",
-      "  baton hook user-prompt-submit     Hook handler (pipe hook payload on stdin)",
-      "  baton hook pre-compact            Hook handler (pipe hook payload on stdin)",
-      "  baton hook session-start          Hook handler (pipe hook payload on stdin)",
-      "  baton install [--force]           Patch ~/.claude/settings.json and install /baton command",
-      "                                   --force replaces an existing non-baton statusLine (e.g. ccstatusline)",
-      "  baton uninstall                   Remove hooks/statusLine/commands; restore settings.json from backup",
-      "  baton catch [--dry-run]           Resume from the nearest .claude/baton/BATON.md",
-      "  baton drop                        Archive the nearest BATON.md so /clear starts fresh",
+      "  npx ccbaton@latest          install or upgrade",
+      "  npx ccbaton check           verify current install",
+      "  npx ccbaton uninstall       remove",
+      "",
+      "Subcommands:",
+      "  install [--force]           patch ~/.claude/settings.json",
+      "                              --force replaces an existing non-baton statusLine",
+      "  uninstall                   restore settings.json from backup, remove artifacts",
+      "  check                       show current install status (read-only)",
+      "  catch [--dry-run]           resume from the nearest BATON.md",
+      "  drop                        archive the nearest BATON.md so /clear starts fresh",
+      "",
+      "Internal (Claude Code pipes data on stdin):",
+      "  statusline                  render the statusline",
+      "  hook user-prompt-submit     UserPromptSubmit handler",
+      "  hook pre-compact            PreCompact handler",
+      "  hook session-start          SessionStart handler",
       "",
     ].join("\n"),
   );
@@ -37,6 +44,10 @@ function usage(): void {
 
 async function main(): Promise<number> {
   const args = process.argv.slice(2);
+  if (args.includes("--version") || args.includes("-v")) {
+    process.stdout.write(`${VERSION}\n`);
+    return 0;
+  }
   const [cmd, sub] = args;
   const rest = args.slice(1);
   switch (cmd) {
@@ -63,9 +74,24 @@ async function main(): Promise<number> {
     }
     case "install": {
       const force = args.includes("--force");
-      const report = install({ force });
+      const postinstall = args.includes("--postinstall");
+      if (postinstall) {
+        try {
+          const report = install({ force, postinstall });
+          printReport(report);
+        } catch (err) {
+          process.stderr.write(`baton: postinstall failed (non-fatal): ${String(err)}\n`);
+        }
+        return 0;
+      }
+      const report = install({ force, postinstall });
       printReport(report);
       return 0;
+    }
+    case "check": {
+      const report = check();
+      printCheckReport(report);
+      return report.allPresent ? 0 : 1;
     }
     case "uninstall": {
       const report = uninstall();
@@ -85,6 +111,10 @@ async function main(): Promise<number> {
       printReport(report);
       return 0;
     }
+    case "--version":
+    case "-v":
+      process.stdout.write(`${VERSION}\n`);
+      return 0;
     case "--help":
     case "-h":
     case "help":
