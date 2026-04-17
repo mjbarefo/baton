@@ -21,12 +21,9 @@ interface StatusJSON {
   model?: { id?: string; display_name?: string };
   workspace?: { current_dir?: string; project_dir?: string };
   cost?: { total_cost_usd?: number; total_duration_ms?: number };
-  // Real Claude Code schema: context_window_size is the max (200k default,
-  // 1M for extended-context models). current_usage holds per-call token
-  // counts from the most recent API response; we sum input + cache_*
-  // to match the transcript-based total (output excluded — not re-fed).
   context_window?: {
     context_window_size?: number;
+    used_percentage?: number;
     current_usage?: {
       input_tokens?: number;
       output_tokens?: number;
@@ -106,18 +103,13 @@ export async function renderStatusline(raw: string): Promise<string> {
     persistMaxTokensToState(data.session_id, payloadMax);
   }
 
-  const usage = data.context_window?.current_usage;
-  let tokens: number | undefined;
-  if (usage) {
-    tokens =
-      (usage.input_tokens ?? 0) +
-      (usage.cache_creation_input_tokens ?? 0) +
-      (usage.cache_read_input_tokens ?? 0);
-  }
-  if (tokens == null && data.transcript_path) {
+  const usedPct = data.context_window?.used_percentage;
+  let tokens: number | null = null;
+  if (usedPct != null && payloadMax) {
+    tokens = Math.round((usedPct / 100) * payloadMax);
+  } else if (data.transcript_path) {
     tokens = tokenTotalFromTranscript(data.transcript_path);
   }
-  tokens = tokens ?? 0;
 
   const parts: (string | null)[] = [
     renderModel(data.model?.display_name || data.model?.id),

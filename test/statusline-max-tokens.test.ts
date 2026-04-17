@@ -19,7 +19,7 @@ afterEach(() => {
 function ctxWindow(tokens: number, max: number) {
   return {
     context_window_size: max,
-    current_usage: { input_tokens: tokens, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+    used_percentage: (tokens / max) * 100,
   };
 }
 
@@ -67,7 +67,7 @@ describe("renderStatusline — context_window_size persistence", () => {
     await renderStatusline(
       JSON.stringify({
         session_id: "no-max",
-        context_window: { current_usage: { input_tokens: 50_000 } },
+        context_window: { used_percentage: 25 },
       }),
     );
     expect(existsSync(join(STATE_DIR, "no-max.json"))).toBe(false);
@@ -110,26 +110,43 @@ describe("renderStatusline — context_window_size persistence", () => {
     expect(line).toContain("1000k");
   });
 
-  test("sums current_usage fields for token total", async () => {
+  test("derives token total from used_percentage", async () => {
     const line = await renderStatusline(
       JSON.stringify({
         context_window: {
           context_window_size: 200_000,
-          current_usage: {
-            input_tokens: 10_000,
-            cache_read_input_tokens: 40_000,
-            cache_creation_input_tokens: 5_000,
-            output_tokens: 999_999, // output is NOT re-fed, must be excluded
-          },
+          used_percentage: 27.5, // 27.5% of 200k = 55k
         },
       }),
     );
-    // 10k + 40k + 5k = 55k. Output excluded; must be well under 200k zone escalation.
     expect(line).toContain("55.0k/200k");
   });
 
   test("malformed JSON still renders without crashing", async () => {
     const line = await renderStatusline("{invalid");
     expect(typeof line).toBe("string");
+  });
+
+  test("renders --/-- when no used_percentage and no transcript_path", async () => {
+    const line = await renderStatusline(JSON.stringify({ session_id: "no-data" }));
+    expect(line).toContain("--/--");
+  });
+
+  test("renders --/-- when context_window has no used_percentage", async () => {
+    const line = await renderStatusline(
+      JSON.stringify({
+        context_window: { context_window_size: 200_000 },
+      }),
+    );
+    expect(line).toContain("--/--");
+  });
+
+  test("renders --/-- when used_percentage present but context_window_size absent", async () => {
+    const line = await renderStatusline(
+      JSON.stringify({
+        context_window: { used_percentage: 25 },
+      }),
+    );
+    expect(line).toContain("--/--");
   });
 });

@@ -35,7 +35,10 @@ export function formatK(tokens: number): string {
  * so the user can see at a glance how much runway they have before baton intervenes.
  * Width is the total cell count; the tick replaces one cell, keeping the bar width stable.
  */
-export function renderBar(tokens: number, max: number, width = 12): string {
+export function renderBar(tokens: number | null, max: number, width = 12): string {
+  if (tokens === null) {
+    return color.white.dim("░".repeat(width) + " --/--");
+  }
   const zone = zoneFor(tokens, max);
   if (zone === "red") {
     return paintZone("red", "⚠ BATON NOW");

@@ -7,20 +7,24 @@ import { writeTranscriptFixture } from "./fixtures.ts";
 
 let tmp: string;
 let stdoutCapture: string;
-let origWrite: typeof process.stdout.write;
+let origStdoutWrite: typeof process.stdout.write;
+let origStderrWrite: typeof process.stderr.write;
 
 beforeEach(() => {
   tmp = mkdtempSync(join(tmpdir(), "baton-test-"));
   stdoutCapture = "";
-  origWrite = process.stdout.write.bind(process.stdout);
+  origStdoutWrite = process.stdout.write.bind(process.stdout);
+  origStderrWrite = process.stderr.write.bind(process.stderr);
   process.stdout.write = ((chunk: string | Uint8Array) => {
     stdoutCapture += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString();
     return true;
   }) as typeof process.stdout.write;
+  process.stderr.write = (() => true) as typeof process.stderr.write;
 });
 
 afterEach(() => {
-  process.stdout.write = origWrite;
+  process.stdout.write = origStdoutWrite;
+  process.stderr.write = origStderrWrite;
   rmSync(tmp, { recursive: true, force: true });
 });
 
