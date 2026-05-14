@@ -1,8 +1,9 @@
 import { existsSync, readFileSync } from "node:fs";
-import { basename, dirname, resolve } from "node:path";
+import { resolve } from "node:path";
 import { BATON_REL_PATH, userHomeDir } from "../config.ts";
 import { DEFAULT_PATTERNS, loadProjectPatterns, loadUserPatterns, redact } from "./redact.ts";
 import { findBaton } from "./find.ts";
+import { projectRootForBaton } from "./archive.ts";
 
 const REQUIRED_HEADERS = [
   "Current Goal",
@@ -83,14 +84,7 @@ function hasCommandLikeTestState(value: string | null): boolean {
 }
 
 function scanSecrets(path: string, body: string): ValidationIssue[] {
-  const containingDir = dirname(path);
-  const parentDir = dirname(containingDir);
-  const projectRoot =
-    basename(containingDir) === ".baton"
-      ? parentDir
-      : basename(containingDir) === "baton" && basename(parentDir) === ".claude"
-        ? dirname(parentDir)
-        : containingDir;
+  const projectRoot = projectRootForBaton(path);
   const patterns = [
     ...DEFAULT_PATTERNS,
     ...loadUserPatterns(userHomeDir()),

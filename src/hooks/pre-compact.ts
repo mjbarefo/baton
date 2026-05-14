@@ -18,7 +18,13 @@ export async function runPreCompactHook(raw: string): Promise<number> {
     return 0;
   }
 
-  if (payload.trigger === "manual") return 0;
+  // This hook is registered with matcher "auto", so Claude Code should never invoke
+  // it for manual compaction. If that ever changes, block explicitly rather than
+  // silently allowing via empty stdout (exit 0 + no output = "allow" per the spec).
+  if (payload.trigger === "manual") {
+    process.stdout.write(JSON.stringify({ decision: "block", reason: "baton: manual compaction intercepted — run /baton first if you want to preserve session state" }));
+    return 0;
+  }
 
   const cwd = payload.cwd || process.cwd();
   const existing = freshestExistingBatonWalkingUp(cwd);

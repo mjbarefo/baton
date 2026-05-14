@@ -1,5 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
-import { BATON_REL_PATH } from "../config.ts";
+import { dirname, join } from "node:path";
+import { spawnSync } from "node:child_process";
+import { BATON_REL_PATH, userHomeDir } from "../config.ts";
 import { freshestExistingBatonWalkingUp } from "./freshness.ts";
 import { listArchives } from "./archive-library.ts";
 
@@ -20,6 +22,56 @@ export interface BatonStatusReport {
     goal: string;
     timestamp: string;
   } | null;
+  gitignoreWarning: string | null;
+}
+
+// Returns the path of the first gitignore (project-level or global) that
+// contains a pattern matching .baton/, or null if none found.
+// Project-level: walks up from cwd to the git root (or filesystem root).
+// Global: checks ~/.config/git/ignore and git config --global core.excludesFile.
+function findGitignoreBatonMatch(cwd: string): string | null {
+  const BATON_PATTERNS = /^[/]?[.]baton[/]?([*][*])?$/;
+
+  function matchesInFile(path: string): boolean {
+    if (!existsSync(path)) return false;
+    try {
+      const content = readFileSync(path, "utf8");
+      const lines = content.split("\n").map(l => l.trim()).filter(l => l && !l.startsWith("#"));
+      return lines.some(l => BATON_PATTERNS.test(l));
+    } catch { return false; }
+  }
+
+  // Per-project .gitignore files from cwd up to the git root.
+  let dir = cwd;
+  while (true) {
+    if (matchesInFile(join(dir, ".gitignore"))) return join(dir, ".gitignore");
+    const parent = dirname(dir);
+    if (parent === dir) break; // filesystem root
+    if (existsSync(join(dir, ".git"))) break; // stop at git root
+    dir = parent;
+  }
+
+  // Global gitignore: XDG default path, then git config --global core.excludesFile.
+  const home = userHomeDir();
+  const xdgIgnore = join(home, ".config", "git", "ignore");
+  const globalPaths: string[] = [xdgIgnore];
+  try {
+    const result = spawnSync("git", ["config", "--global", "core.excludesFile"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    if (result.status === 0) {
+      let custom = result.stdout.trim();
+      if (custom.startsWith("~/")) custom = join(home, custom.slice(2));
+      if (custom && custom !== xdgIgnore) globalPaths.push(custom);
+    }
+  } catch { /* git not on PATH */ }
+
+  for (const p of globalPaths) {
+    if (matchesInFile(p)) return p;
+  }
+
+  return null;
 }
 
 function readGoal(path: string): string | null {
@@ -45,7 +97,8 @@ function formatAge(ageMs: number | null): string {
 
 export function batonStatus(cwd: string): BatonStatusReport {
   const baton = freshestExistingBatonWalkingUp(cwd);
-  const archive = listArchives()[0] ?? null;
+  const archive = listArchives(1)[0] ?? null;
+  const gitignoreMatch = findGitignoreBatonMatch(cwd);
   return {
     cwd,
     baton: {
@@ -64,6 +117,9 @@ export function batonStatus(cwd: string): BatonStatusReport {
           goal: archive.goal,
           timestamp: archive.timestamp.toISOString(),
         }
+      : null,
+    gitignoreWarning: gitignoreMatch
+      ? `${gitignoreMatch} contains a pattern matching .baton/ — batons may be lost across git operations`
       : null,
   };
 }
@@ -84,6 +140,10 @@ export function printBatonStatus(report: BatonStatusReport): void {
     lines.push("");
     lines.push(`  latest archive: ${report.latestArchive.id}`);
     lines.push(`  archive goal: ${report.latestArchive.goal}`);
+  }
+  if (report.gitignoreWarning) {
+    lines.push("");
+    lines.push(`  warning: ${report.gitignoreWarning}`);
   }
   process.stdout.write(lines.join("\n") + "\n");
 }

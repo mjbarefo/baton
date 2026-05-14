@@ -1,13 +1,13 @@
 import { BATON_REL_PATH } from "../config.ts";
 import { archiveBaton, PartialArchiveError } from "./archive.ts";
-import { findBaton } from "./find.ts";
+import { freshestExistingBatonWalkingUp } from "./freshness.ts";
 
 export interface DropOptions {
   cwd: string;
 }
 
 export function drop(opts: DropOptions): number {
-  const baton = findBaton(opts.cwd);
+  const baton = freshestExistingBatonWalkingUp(opts.cwd)?.path ?? null;
   if (!baton) {
     process.stdout.write(
       `baton drop: no ${BATON_REL_PATH} found walking up from ${opts.cwd}. Nothing to drop.\n`,

@@ -20,7 +20,7 @@ function uniqueArchivePath(dir: string, stem: string): string {
   return join(dir, `${stem}-${i}.md`);
 }
 
-function projectRootForBaton(batonPath: string): string {
+export function projectRootForBaton(batonPath: string): string {
   const batonDir = dirname(batonPath);
   if (basename(batonDir) === ".baton") return dirname(batonDir);
 
@@ -29,7 +29,17 @@ function projectRootForBaton(batonPath: string): string {
     return dirname(maybeClaudeDir);
   }
 
-  return dirname(batonDir);
+  // Non-standard path: walk up to find the nearest .git root.
+  // Falls back to batonDir itself (treating BATON.md as sitting at the
+  // project root) if no .git is found — e.g. a bare workspace or a temp dir.
+  let dir = batonDir;
+  while (true) {
+    if (existsSync(join(dir, ".git"))) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) break; // filesystem root — give up
+    dir = parent;
+  }
+  return batonDir;
 }
 
 export function archiveBaton(batonPath: string, suffix = ""): string {

@@ -29,10 +29,11 @@ afterEach(() => {
 });
 
 describe("runPreCompactHook", () => {
-  test("manual trigger is a no-op", async () => {
+  test("manual trigger blocks (explicit, not silent allow)", async () => {
     const code = await runPreCompactHook(JSON.stringify({ trigger: "manual", cwd: tmp }));
     expect(code).toBe(0);
-    expect(stdoutCapture).toBe("");
+    const parsed = JSON.parse(stdoutCapture);
+    expect(parsed.decision).toBe("block");
   });
 
   test("fresh baton blocks compaction without rewriting", async () => {

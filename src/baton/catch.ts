@@ -1,7 +1,12 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { BATON_REL_PATH } from "../config.ts";
 import { archiveBaton } from "./archive.ts";
-import { findBaton } from "./find.ts";
+import { freshestExistingBatonWalkingUp } from "./freshness.ts";
+
+function isOnPath(bin: string): boolean {
+  const lookup = process.platform === "win32" ? "where" : "which";
+  return spawnSync(lookup, [bin], { stdio: "ignore" }).status === 0;
+}
 
 export type CatchHost = "claude" | "codex" | "gemini";
 
@@ -12,7 +17,8 @@ export interface CatchOptions {
 }
 
 export async function catchBaton(opts: CatchOptions): Promise<number> {
-  const baton = findBaton(opts.cwd);
+  const batonResult = freshestExistingBatonWalkingUp(opts.cwd);
+  const baton = batonResult?.path ?? null;
   const host = opts.host ?? "claude";
   if (!baton) {
     process.stderr.write(
@@ -27,7 +33,14 @@ export async function catchBaton(opts: CatchOptions): Promise<number> {
     return 0;
   }
 
-  // Archive BEFORE spawning claude so the resume is a clean one-shot.
+  const [bin] = catchInvocation(host, "");
+  if (!isOnPath(bin)) {
+    process.stderr.write(`baton catch: '${bin}' not found on PATH — install it first.\n`);
+    return 1;
+  }
+
+  // Archive BEFORE spawning so the resume is a clean one-shot. Binary existence
+  // is confirmed above so the baton is only relocated once we know spawn will work.
   const archivePath = archiveBaton(baton);
   process.stdout.write(`baton catch: archived baton → ${archivePath}\n`);
 
@@ -35,7 +48,7 @@ export async function catchBaton(opts: CatchOptions): Promise<number> {
     `Read ${archivePath} top-to-bottom. Confirm in one short sentence that you understand the state. ` +
     `Then execute the "Next Concrete Action" from that file. Do not re-plan — trust the baton.`;
 
-  const [bin, argv] = catchInvocation(host, initialPrompt);
+  const [, argv] = catchInvocation(host, initialPrompt);
   const child = spawn(bin, argv, {
     stdio: "inherit",
     cwd: opts.cwd,

@@ -49,12 +49,15 @@ _none_
 beforeEach(() => {
   tmp = join(tmpdir(), `baton-validate-${crypto.randomUUID()}`);
   mkdirSync(tmp, { recursive: true });
+  // .git sentinel bounds findGitignoreBatonMatch's upward walk to tmp
+  mkdirSync(join(tmp, ".git"), { recursive: true });
   rmSync(join(TEST_HOME, ".baton"), { recursive: true, force: true });
 });
 
 afterEach(() => {
   rmSync(tmp, { recursive: true, force: true });
   rmSync(join(TEST_HOME, ".baton"), { recursive: true, force: true });
+  rmSync(join(TEST_HOME, ".config", "git"), { recursive: true, force: true });
 });
 
 test("validateBaton accepts a concrete baton", () => {
@@ -107,4 +110,59 @@ test("batonStatus finds canonical baton and extracts goal", () => {
   expect(report.baton.path).toBe(path);
   expect(report.baton.fresh).toBe(true);
   expect(report.baton.goal).toBe("Ship multi-host baton support.");
+});
+
+test("batonStatus warns when .gitignore contains a pattern matching .baton/", () => {
+  writeFileSync(join(tmp, ".gitignore"), ".baton/\n");
+
+  const report = batonStatus(tmp);
+
+  expect(report.gitignoreWarning).toContain(".baton/");
+  expect(report.gitignoreWarning).toContain(join(tmp, ".gitignore"));
+});
+
+test("batonStatus has no gitignore warning when .gitignore does not match .baton/", () => {
+  writeFileSync(join(tmp, ".gitignore"), "node_modules/\ndist/\n");
+
+  const report = batonStatus(tmp);
+
+  expect(report.gitignoreWarning).toBeNull();
+});
+
+test("batonStatus has no gitignore warning when no .gitignore exists", () => {
+  const report = batonStatus(tmp);
+  expect(report.gitignoreWarning).toBeNull();
+});
+
+test("batonStatus warns when global ~/.config/git/ignore matches .baton/", () => {
+  const globalIgnore = join(TEST_HOME, ".config", "git", "ignore");
+  mkdirSync(join(TEST_HOME, ".config", "git"), { recursive: true });
+  writeFileSync(globalIgnore, ".baton/\n");
+
+  const report = batonStatus(tmp);
+
+  expect(report.gitignoreWarning).toContain(".baton/");
+  expect(report.gitignoreWarning).toContain(globalIgnore);
+});
+
+test("batonStatus has no warning when global ~/.config/git/ignore does not match .baton/", () => {
+  const globalIgnore = join(TEST_HOME, ".config", "git", "ignore");
+  mkdirSync(join(TEST_HOME, ".config", "git"), { recursive: true });
+  writeFileSync(globalIgnore, "node_modules/\n*.log\n");
+
+  const report = batonStatus(tmp);
+
+  expect(report.gitignoreWarning).toBeNull();
+});
+
+test("batonStatus: project .gitignore match takes precedence over global ignore", () => {
+  // Both exist — we get the project-level match back first.
+  writeFileSync(join(tmp, ".gitignore"), ".baton/\n");
+  const globalIgnore = join(TEST_HOME, ".config", "git", "ignore");
+  mkdirSync(join(TEST_HOME, ".config", "git"), { recursive: true });
+  writeFileSync(globalIgnore, ".baton/\n");
+
+  const report = batonStatus(tmp);
+
+  expect(report.gitignoreWarning).toContain(join(tmp, ".gitignore"));
 });

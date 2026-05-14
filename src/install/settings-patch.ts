@@ -1,7 +1,8 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync, readdirSync, rmSync, renameSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync, readdirSync, rmSync, renameSync, unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 import {
+  BATON_HOOK_TIMEOUT_S,
   SUBCOMMANDS,
   VERSION,
   buildCommand,
@@ -925,13 +926,13 @@ function codexHooksToml(): string {
     '[[hooks.SessionStart.hooks]]',
     'type = "command"',
     `command = ${JSON.stringify(HOOK_SS_CMD)}`,
-    'timeout = 10',
+    `timeout = ${BATON_HOOK_TIMEOUT_S}`,
     "",
     '[[hooks.UserPromptSubmit]]',
     '[[hooks.UserPromptSubmit.hooks]]',
     'type = "command"',
     `command = ${JSON.stringify(HOOK_UPS_CMD)}`,
-    'timeout = 10',
+    `timeout = ${BATON_HOOK_TIMEOUT_S}`,
   ].join("\n");
 }
 
@@ -943,7 +944,7 @@ function installCodex(dryRun: boolean): HostInstallSummary {
   const strippedConfig = ensureCodexHooksFeature(stripManagedBlock(priorConfig)).trimEnd();
   const nextConfig = `${strippedConfig}${strippedConfig ? "\n\n" : ""}${managedBlock(codexHooksToml())}`;
   const configChanged = writeTextFile(configPath, nextConfig, dryRun);
-  if (configChanged) details.push(`${dryRun ? "would update" : "updated"} ${configPath}`);
+  if (configChanged) details.push(`${dryRun ? "would update" : "updated"} ${configPath} (hook timeout: ${BATON_HOOK_TIMEOUT_S}s — override with BATON_HOOK_TIMEOUT_S)`);
 
   const template = readTemplateBodyWithOverride().body;
   const skillPath = userAgentsBatonSkillPath();
@@ -1002,6 +1003,7 @@ function geminiHooksJson(): string {
           ],
         },
       ],
+      // BeforeAgent: fires after user prompt, before planning — Gemini's equivalent of Claude Code's UserPromptSubmit
       BeforeAgent: [
         {
           matcher: "*",
@@ -1050,8 +1052,9 @@ function installGemini(dryRun: boolean): HostInstallSummary {
   const commandBodies: Array<[string, string]> = [
     ["baton.toml", geminiCommandToml("Write and validate .baton/BATON.md", geminiBatonPrompt())],
     ["drop.toml", geminiCommandToml("Archive the pending BATON.md", geminiDropPrompt())],
+    // baton-codex.toml: asking Codex from inside Gemini is sensible.
+    // baton-gemini.toml omitted: Gemini spawning a second Gemini instance for a "second opinion" is self-referential.
     ["baton-codex.toml", geminiCommandToml("Run Codex as a read-only baton sidecar", geminiSidecarPrompt("codex"))],
-    ["baton-gemini.toml", geminiCommandToml("Run Gemini as a read-only baton sidecar", geminiSidecarPrompt("gemini"))],
   ];
   const commandWrites = commandBodies.map(([file, body]) => {
     const path = join(extDir, "commands", file);
@@ -1060,11 +1063,17 @@ function installGemini(dryRun: boolean): HostInstallSummary {
     return changed;
   });
 
+  // Remove stale baton-gemini.toml left by older installs.
+  const staleGeminiCmd = join(extDir, "commands", "baton-gemini.toml");
+  const staleGeminiExists = existsSync(staleGeminiCmd);
+  if (staleGeminiExists && !dryRun) unlinkSync(staleGeminiCmd);
+  if (staleGeminiExists) details.push(`${dryRun ? "would remove stale" : "removed stale"} ${staleGeminiCmd}`);
+
   const hooksPath = join(extDir, "hooks", "hooks.json");
   const hooksChanged = writeTextFile(hooksPath, geminiHooksJson(), dryRun);
   if (hooksChanged) details.push(`${dryRun ? "would write" : "wrote"} ${hooksPath}`);
 
-  const changed = manifestChanged || contextChanged || commandWrites.some(Boolean) || hooksChanged;
+  const changed = manifestChanged || contextChanged || commandWrites.some(Boolean) || hooksChanged || staleGeminiExists;
   if (!dryRun && changed) {
     mkdirSync(dirname(hostInstallManifestPath("gemini")), { recursive: true });
     writeFileSync(
@@ -1137,13 +1146,14 @@ function geminiCheck(): HostCheckSummary {
   const manifest = existsSync(join(extDir, "gemini-extension.json"));
   const batonCommand = existsSync(join(extDir, "commands", "baton.toml"));
   const hooksJson = existsSync(join(extDir, "hooks", "hooks.json"));
+  const staleGeminiCmd = existsSync(join(extDir, "commands", "baton-gemini.toml"));
   const settingsPath = userGeminiSettingsPath();
   const settings = existsSync(settingsPath) ? readFileSync(settingsPath, "utf8") : "";
   const legacySettingsHooks = settings.includes(HOOK_SS_CMD) && settings.includes(HOOK_UPS_CMD);
   return {
     host: "gemini",
-    allPresent: manifest && batonCommand && hooksJson,
-    details: { extensionDir: extDir, manifest, batonCommand, hooksJson, settingsPath, legacySettingsHooks },
+    allPresent: manifest && batonCommand && hooksJson && !staleGeminiCmd,
+    details: { extensionDir: extDir, manifest, batonCommand, hooksJson, staleGeminiCmd, settingsPath, legacySettingsHooks },
   };
 }
 
@@ -1192,6 +1202,7 @@ function uninstallCodex(): HostUninstallSummary {
   }
   const skillDir = userAgentsBatonSkillDir();
   const skillPath = userAgentsBatonSkillPath();
+  // Ownership check works because installCodex writes src/baton/template.md, which starts with ---\nname: baton\n
   if (existsSync(skillPath) && startsWithFrontmatter(skillPath, "baton")) {
     rmSync(skillDir, { recursive: true, force: true });
     details.push(`removed ${skillDir}`);
@@ -1205,27 +1216,8 @@ function uninstallCodex(): HostUninstallSummary {
 }
 
 function uninstallGemini(): HostUninstallSummary {
+  // Baton uses the Gemini extension mechanism (~/.gemini/extensions/baton/), not settings.json.
   const details: string[] = [];
-  const settingsPath = userGeminiSettingsPath();
-  if (existsSync(settingsPath)) {
-    const settings = loadSettings(settingsPath);
-    if (settings.hooks) {
-      let changed = false;
-      for (const [event, matchers] of Object.entries(settings.hooks)) {
-        const filtered = matchers
-          .map((m) => ({ ...m, hooks: (m.hooks ?? []).filter((h) => !isBatonCommand(h.command ?? "")) }))
-          .filter((m) => (m.hooks ?? []).length > 0);
-        if (JSON.stringify(filtered) !== JSON.stringify(matchers)) changed = true;
-        if (filtered.length === 0) delete settings.hooks[event];
-        else settings.hooks[event] = filtered;
-      }
-      if (Object.keys(settings.hooks).length === 0) delete settings.hooks;
-      if (changed) {
-        writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n", "utf8");
-        details.push(`updated ${settingsPath}`);
-      }
-    }
-  }
   const extDir = userGeminiBatonExtensionDir();
   const manifest = join(extDir, "gemini-extension.json");
   if (existsSync(manifest)) {

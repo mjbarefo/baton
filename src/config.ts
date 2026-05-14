@@ -35,6 +35,16 @@ if (process.env.BATON_FRESH_MS !== undefined && isNaN(_batonFreshRaw)) {
 }
 export const BATON_FRESH_MS = isNaN(_batonFreshRaw) ? _BATON_FRESH_MS_DEFAULT : _batonFreshRaw;
 
+const _BATON_HOOK_TIMEOUT_S_DEFAULT = 30;
+const _batonHookTimeoutRaw = Number(process.env.BATON_HOOK_TIMEOUT_S ?? _BATON_HOOK_TIMEOUT_S_DEFAULT);
+const _batonHookTimeoutValid = Number.isFinite(_batonHookTimeoutRaw) && _batonHookTimeoutRaw > 0;
+if (process.env.BATON_HOOK_TIMEOUT_S !== undefined && !_batonHookTimeoutValid) {
+  process.stderr.write(`baton: BATON_HOOK_TIMEOUT_S="${process.env.BATON_HOOK_TIMEOUT_S}" must be a positive number — using default ${_BATON_HOOK_TIMEOUT_S_DEFAULT}s\n`);
+}
+export const BATON_HOOK_TIMEOUT_S = _batonHookTimeoutValid
+  ? Math.round(_batonHookTimeoutRaw)
+  : _BATON_HOOK_TIMEOUT_S_DEFAULT;
+
 export const BATON_REL_PATH = ".baton/BATON.md";
 export const LEGACY_BATON_REL_PATH = ".claude/baton/BATON.md";
 

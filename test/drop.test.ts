@@ -1,5 +1,5 @@
 import { expect, mock, test, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readdirSync, rmSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { TEST_HOME } from "./helpers/test-home.ts";
@@ -90,6 +90,30 @@ test("drop reports archive path but exits 1 and warns when source removal fails 
   expect(stdoutCapture).toContain("/archive/path-dropped.md");
   expect(stderrCapture).toContain("may re-inject on next resume");
   expect(stderrCapture).toContain("Run baton drop again");
+});
+
+test("drop prefers fresh legacy baton over stale canonical baton", () => {
+  // Stale canonical .baton/BATON.md
+  mkdirSync(join(proj, ".baton"), { recursive: true });
+  const stalePath = join(proj, ".baton", "BATON.md");
+  writeFileSync(stalePath, "# stale canonical");
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+  utimesSync(stalePath, oneHourAgo, oneHourAgo);
+
+  // Fresh legacy .claude/baton/BATON.md
+  mkdirSync(join(proj, ".claude", "baton"), { recursive: true });
+  const legacyPath = join(proj, ".claude", "baton", "BATON.md");
+  writeFileSync(legacyPath, "# fresh legacy");
+
+  const code = drop({ cwd: proj });
+
+  expect(code).toBe(0);
+  // The fresh legacy baton should have been archived (moved), not the stale canonical
+  expect(existsSync(legacyPath)).toBe(false);
+  expect(existsSync(stalePath)).toBe(true);
+  const archived = readdirSync(BATON_ARCHIVE_DIR);
+  expect(archived.length).toBe(1);
+  expect(archived[0]).toContain("-dropped.md");
 });
 
 test("drop walks up from a subdirectory to find the baton", () => {

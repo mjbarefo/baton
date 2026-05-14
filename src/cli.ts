@@ -138,6 +138,10 @@ async function main(): Promise<number> {
         process.stderr.write("baton install: --host must be claude, codex, gemini, or all\n");
         return 2;
       }
+      if (postinstall && host !== "claude") {
+        process.stderr.write("baton install: --postinstall is only valid for --host claude (or no --host)\n");
+        return 2;
+      }
       if (postinstall) {
         try {
           const report = install({ force, postinstall });

@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
-import { basename, dirname } from "node:path";
 import { BATON_REL_PATH, userHomeDir } from "../config.ts";
 import { findBaton } from "../baton/find.ts";
+import { projectRootForBaton } from "../baton/archive.ts";
 import {
   redact,
   loadUserPatterns,
@@ -40,17 +40,6 @@ function isOnPath(bin: string): boolean {
   return result.status === 0;
 }
 
-function projectRootForBaton(batonPath: string): string {
-  const batonDir = dirname(batonPath);
-  if (basename(batonDir) === ".baton") return dirname(batonDir);
-
-  const maybeClaudeDir = dirname(batonDir);
-  if (basename(batonDir) === "baton" && basename(maybeClaudeDir) === ".claude") {
-    return dirname(maybeClaudeDir);
-  }
-
-  return dirname(batonDir);
-}
 
 export async function runSidecar(opts: SidecarOptions): Promise<number> {
   if (!isSidecarMode(opts.mode)) {

@@ -22,6 +22,10 @@ export async function runSessionStartHook(raw: string): Promise<number> {
   }
 
   if (!payload.source || payload.source === "startup") return 0;
+  // "compact" is a real spec value (fires when auto or manual compaction runs).
+  // In practice it should never reach us because PreCompact always blocks, but we
+  // handle it defensively: if compaction somehow succeeded and a fresh baton exists,
+  // inject it so the session isn't left context-free.
   if (!["clear", "resume", "compact"].includes(payload.source)) return 0;
 
   const cwd = payload.cwd || process.cwd();
