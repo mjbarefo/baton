@@ -10,6 +10,10 @@ let spawnMode: SpawnMode = "exit";
 let binaryMissing = false;
 const spawnCalls: unknown[][] = [];
 const actualChildProcess = await import("node:child_process");
+// Capture the real spawnSync BEFORE mock.module mutates the namespace —
+// otherwise the proxy below recurses into itself (which hangs any later test
+// file whose code path calls spawnSync with a cmd that isn't which/where).
+const realSpawnSync = actualChildProcess.spawnSync;
 
 mock.module("node:child_process", () => ({
   ...actualChildProcess,
@@ -18,7 +22,7 @@ mock.module("node:child_process", () => ({
     if (cmd === "which" || cmd === "where") {
       return { status: binaryMissing ? 1 : 0 };
     }
-    return actualChildProcess.spawnSync(cmd, args, opts as Parameters<typeof actualChildProcess.spawnSync>[2]);
+    return realSpawnSync(cmd, args, opts as Parameters<typeof actualChildProcess.spawnSync>[2]);
   },
   spawn: (...args: unknown[]) => {
     spawnCalls.push(args);
