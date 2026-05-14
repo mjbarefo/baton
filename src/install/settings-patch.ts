@@ -33,7 +33,14 @@ const KNOWN_SUBCOMMANDS = [
   "drop",
   "sidecar codex",
   "sidecar gemini",
+  "widget",
+  "ccstatusline-setup",
 ];
+
+export function isCcstatuslineCommand(cmd: string | undefined): boolean {
+  if (!cmd) return false;
+  return /(^|[\\\/\s])ccstatusline([@\s\\\/]|$)/i.test(cmd);
+}
 
 function isBatonCommand(cmd: string | undefined): boolean {
   if (!cmd) return false;
@@ -153,6 +160,16 @@ function patchStatusline(
     if (force) {
       settings.statusLine = { type: "command", command: STATUSLINE_CMD, padding: 0 };
       return { wrote: true, skipped: null, replaced: existing };
+    }
+    if (isCcstatuslineCommand(existing)) {
+      return {
+        wrote: false,
+        skipped:
+          `existing statusLine.command is "ccstatusline" — leaving it in place. ` +
+          `Run \`baton ccstatusline-setup\` for steps to add baton's widgets to ccstatusline, ` +
+          `or re-run \`baton install --force\` to replace it with baton's statusline.`,
+        replaced: null,
+      };
     }
     return {
       wrote: false,

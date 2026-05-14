@@ -5,6 +5,10 @@ export function visibleLength(s: string): number {
   return s.replace(ANSI_RE, "").length;
 }
 
+export function stripAnsi(s: string): string {
+  return s.replace(ANSI_RE, "");
+}
+
 function ansi(open: string, close: string, text: string): string {
   return `\x1b[${open}m${text}\x1b[${close}m`;
 }

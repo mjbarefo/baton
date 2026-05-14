@@ -83,12 +83,12 @@ function readBatonGoal(path: string, mtimeMs: number): string | null {
   return goal;
 }
 
-export function renderBatonBadge(
+export function renderBatonBadgeStates(
   cwd: string | undefined,
   sessionId: string | undefined,
-  max: number = DEFAULT_MAX_TOKENS,
+  _max?: number,
   maxWidth?: number,
-): string {
+): string | null {
   if (cwd) {
     const batonPath = join(cwd, BATON_REL_PATH);
     if (existsSync(batonPath)) {
@@ -118,7 +118,17 @@ export function renderBatonBadge(
     }
   }
 
-  return color.blue.dim(`→${formatK(Math.round(THRESHOLDS.ORANGE_MAX * max))}`);
+  return null;
+}
+
+export function renderBatonBadge(
+  cwd: string | undefined,
+  sessionId: string | undefined,
+  max: number = DEFAULT_MAX_TOKENS,
+  maxWidth?: number,
+): string {
+  return renderBatonBadgeStates(cwd, sessionId, max, maxWidth)
+    ?? color.blue.dim(`→${formatK(Math.round(THRESHOLDS.ORANGE_MAX * max))}`);
 }
 
 export function renderRateLimit5h(rateLimit: RateLimit | undefined): string | null {
