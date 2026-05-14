@@ -62,7 +62,23 @@ baton sidecar gemini --mode review --dry-run
 
 ## Statusline
 
-The statusline shows model, branch, context usage, baton state, rate limit, duration, and cost in one compact row:
+baton ships in two flavors: drop into your existing [ccstatusline](https://github.com/jasonkrol/ccstatusline) layout (recommended), or run as a zero-config standalone.
+
+### Composed with ccstatusline (recommended)
+
+If you already use ccstatusline, baton can plug its BATON.md badge and threshold-colored context bar into your layout as custom-command widgets — ccstatusline still owns separators, Powerline caps, and theming.
+
+Run:
+
+```bash
+baton ccstatusline-setup
+```
+
+for copy-paste-ready widget commands and the exact TUI steps. baton's installer detects ccstatusline ownership of the statusline and leaves it in place; only the warning text changes to point at this subcommand.
+
+### Standalone
+
+The standalone statusline shows model, branch, context usage, baton state, rate limit, duration, and cost in one compact row:
 
 ```text
 Sonnet 4.5 │ main* │ [======----] 82k/200k │ BATON: Refactor settings-patch │ 5h 71% │ 12m │ $1.24

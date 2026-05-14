@@ -104,6 +104,17 @@ export function installManifestPath(): string {
   return join(userClaudeDir(), "baton", "install-manifest.json");
 }
 
+export function ccstatuslineSettingsPath(): string {
+  const xdg = process.env.XDG_CONFIG_HOME && process.env.XDG_CONFIG_HOME.trim() !== ""
+    ? process.env.XDG_CONFIG_HOME
+    : join(userHomeDir(), ".config");
+  return join(xdg, "ccstatusline", "settings.json");
+}
+
+export function ccstatuslineBackupDir(): string {
+  return join(userClaudeDir(), "baton", "ccstatusline-backups");
+}
+
 export const SUBCOMMANDS = {
   statusline: "statusline",
   hookUps: "hook user-prompt-submit",

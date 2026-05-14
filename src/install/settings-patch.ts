@@ -19,6 +19,7 @@ import {
 } from "../config.ts";
 import { color } from "../statusline/color.ts";
 import { readTemplateBodyWithOverride } from "../baton/template-loader.ts";
+import { preBatonCcstatuslineSnapshot } from "./ccstatusline-backup.ts";
 
 const STATUSLINE_CMD = buildCommand(SUBCOMMANDS.statusline);
 const HOOK_UPS_CMD = buildCommand(SUBCOMMANDS.hookUps);
@@ -33,7 +34,14 @@ const KNOWN_SUBCOMMANDS = [
   "drop",
   "sidecar codex",
   "sidecar gemini",
+  "widget",
+  "ccstatusline-setup",
 ];
+
+export function isCcstatuslineCommand(cmd: string | undefined): boolean {
+  if (!cmd) return false;
+  return /(^|[\\\/\s])ccstatusline([@\s\\\/]|$)/i.test(cmd);
+}
 
 function isBatonCommand(cmd: string | undefined): boolean {
   if (!cmd) return false;
@@ -93,6 +101,7 @@ export interface InstallReport {
   migratedCommands: string[];
   migratedSkills: string[];
   templateSource: "bundled" | "override" | "extended";
+  ccstatuslineBackupPath: string | null;
 }
 
 function loadSettings(settingsPath: string): Settings {
@@ -153,6 +162,16 @@ function patchStatusline(
     if (force) {
       settings.statusLine = { type: "command", command: STATUSLINE_CMD, padding: 0 };
       return { wrote: true, skipped: null, replaced: existing };
+    }
+    if (isCcstatuslineCommand(existing)) {
+      return {
+        wrote: false,
+        skipped:
+          `existing statusLine.command is "ccstatusline" — leaving it in place. ` +
+          `Run \`baton ccstatusline-setup\` for steps to add baton's widgets to ccstatusline, ` +
+          `or re-run \`baton install --force\` to replace it with baton's statusline.`,
+        replaced: null,
+      };
     }
     return {
       wrote: false,
@@ -399,6 +418,7 @@ function warnIfBunMissing(): void {
 interface InstallManifest {
   installedAt: string;
   settingsBackupPath: string | null;
+  ccstatuslineBackupPath?: string | null;
 }
 
 /**
@@ -408,13 +428,17 @@ interface InstallManifest {
  * and make `uninstall` a silent no-op that leaves hooks/statusLine in place.
  * Returns true if a new manifest was written, false if one already existed.
  */
-function writeInstallManifest(backupPath: string | null): boolean {
+function writeInstallManifest(
+  backupPath: string | null,
+  ccstatuslineBackupPath: string | null,
+): boolean {
   const manifestPath = installManifestPath();
   if (existsSync(manifestPath)) return false;
   mkdirSync(dirname(manifestPath), { recursive: true });
   const manifest: InstallManifest = {
     installedAt: new Date().toISOString(),
     settingsBackupPath: backupPath,
+    ccstatuslineBackupPath,
   };
   writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n", "utf8");
   return true;
@@ -586,6 +610,12 @@ export function install(opts: InstallOptions = {}): InstallReport {
   const hadBatonEntriesBeforeInstall = settingsContainBatonEntries(settings);
   const backupPath = backup(settingsPath);
 
+  // First-install snapshot of the user's ccstatusline settings.json (if one
+  // exists). Gated by manifest absence so reinstalls don't capture a config
+  // we may have already nudged the user to modify via /baton ccstatusline-setup.
+  const manifestAlreadyExists = existsSync(installManifestPath());
+  const ccstatuslineBackupPath = manifestAlreadyExists ? null : preBatonCcstatuslineSnapshot();
+
   const { migratedCommands, migratedSkills } = migrateOldArtifacts(commandsDir, skillsDir);
 
   pruneStaleBatonHooks(settings, new Set([STATUSLINE_CMD, HOOK_UPS_CMD, HOOK_PC_CMD, HOOK_SS_CMD]));
@@ -607,11 +637,15 @@ export function install(opts: InstallOptions = {}): InstallReport {
   const wroteBatonCodexCommand = writeBatonCodexCommand(commandsDir, batonCodexCmdPath);
   const wroteBatonGeminiCommand = writeBatonGeminiCommand(commandsDir, batonGeminiCmdPath);
 
-  writeInstallManifest(hadBatonEntriesBeforeInstall ? null : backupPath);
+  writeInstallManifest(
+    hadBatonEntriesBeforeInstall ? null : backupPath,
+    ccstatuslineBackupPath,
+  );
 
   return {
     postinstall: opts.postinstall ?? false,
     backupPath,
+    ccstatuslineBackupPath,
     wroteStatusline: statusResult.wrote,
     skippedStatuslineReason: statusResult.skipped,
     replacedStatusline: statusResult.replaced,
@@ -679,8 +713,11 @@ export function printReport(r: InstallReport): void {
   lines.push("");
   if (r.backupPath) {
     lines.push(`  ${color.dim("settings backed up →")} ${color.dim(r.backupPath)}`);
-    lines.push("");
   }
+  if (r.ccstatuslineBackupPath) {
+    lines.push(`  ${color.dim("ccstatusline backed up →")} ${color.dim(r.ccstatuslineBackupPath)}`);
+  }
+  if (r.backupPath || r.ccstatuslineBackupPath) lines.push("");
   lines.push(`  Restart Claude Code, then type ${color.cyan.bold("/baton")} to snapshot at any time.`);
   process.stdout.write(lines.join("\n") + "\n");
 }

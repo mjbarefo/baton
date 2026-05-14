@@ -260,3 +260,40 @@ test("install leaves baton skill dir alone when it has unexpected files", () => 
   expect(existsSync(extra)).toBe(true);
   expect(report.migratedSkills).not.toContain(skillDir);
 });
+
+test("install skip warning rewrites for ccstatusline ownership", () => {
+  const settingsPath = join(TEST_HOME, ".claude", "settings.json");
+  mkdirSync(join(TEST_HOME, ".claude"), { recursive: true });
+  writeFileSync(
+    settingsPath,
+    JSON.stringify({ statusLine: { type: "command", command: "ccstatusline" } }, null, 2),
+  );
+  const report = install();
+  expect(report.skippedStatuslineReason).toContain("baton ccstatusline-setup");
+  expect(report.skippedStatuslineReason).toContain("--force");
+});
+
+test("install skip warning unchanged for non-ccstatusline statusline", () => {
+  const settingsPath = join(TEST_HOME, ".claude", "settings.json");
+  mkdirSync(join(TEST_HOME, ".claude"), { recursive: true });
+  writeFileSync(
+    settingsPath,
+    JSON.stringify({ statusLine: { type: "command", command: "starship" } }, null, 2),
+  );
+  const report = install();
+  expect(report.skippedStatuslineReason).not.toContain("baton ccstatusline-setup");
+  expect(report.skippedStatuslineReason).toContain("--force");
+});
+
+test("isCcstatuslineCommand recognizes invocation forms", async () => {
+  const { isCcstatuslineCommand } = await import("../src/install/settings-patch.ts");
+  expect(isCcstatuslineCommand("ccstatusline")).toBe(true);
+  expect(isCcstatuslineCommand("npx ccstatusline@2.2.16")).toBe(true);
+  expect(isCcstatuslineCommand("node /usr/lib/ccstatusline/dist/index.js")).toBe(true);
+  expect(isCcstatuslineCommand("bun run ccstatusline")).toBe(true);
+  expect(isCcstatuslineCommand("CCSTATUSLINE")).toBe(true);
+  expect(isCcstatuslineCommand("echo ccstatusline-not-real")).toBe(false);
+  expect(isCcstatuslineCommand("my-ccstatusliner")).toBe(false);
+  expect(isCcstatuslineCommand(undefined)).toBe(false);
+  expect(isCcstatuslineCommand("")).toBe(false);
+});

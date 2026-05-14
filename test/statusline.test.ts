@@ -331,3 +331,8 @@ describe("renderStatusline state persistence", () => {
     expect(written.maxTokens).toBe(200000);
   });
 });
+
+test("renderBatonBadgeStates returns null when idle (no cwd, no sessionId)", async () => {
+  const { renderBatonBadgeStates } = await import("../src/statusline/widgets.ts");
+  expect(renderBatonBadgeStates(undefined, undefined)).toBeNull();
+});

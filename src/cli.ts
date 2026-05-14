@@ -4,7 +4,9 @@ import { runUserPromptSubmitHook } from "./hooks/user-prompt-submit.ts";
 import { runPreCompactHook } from "./hooks/pre-compact.ts";
 import { runSessionStartHook } from "./hooks/session-start.ts";
 import { install, printReport, uninstall, printUninstallReport, check, printCheckReport } from "./install/settings-patch.ts";
-import { VERSION } from "./config.ts";
+import { VERSION, buildCommand } from "./config.ts";
+import { runWidget } from "./widget/dispatch.ts";
+import { color } from "./statusline/color.ts";
 import { catchBaton } from "./baton/catch.ts";
 import { drop } from "./baton/drop.ts";
 import { runReconstruct } from "./baton/reconstruct.ts";
@@ -19,6 +21,14 @@ import {
   printPrune,
   printRecall,
 } from "./baton/archive-library.ts";
+import {
+  backupCcstatusline,
+  listCcstatuslineBackups,
+  restoreCcstatusline,
+  printBackup as printCcsBackup,
+  printRestore as printCcsRestore,
+  printList as printCcsList,
+} from "./install/ccstatusline-backup.ts";
 
 async function readStdin(): Promise<string> {
   if (process.stdin.isTTY) return "";
@@ -54,15 +64,78 @@ function usage(): void {
       "  sidecar gemini [--mode review|critique|alternative] [--dry-run]",
       "                              run Gemini CLI headlessly with the current BATON.md",
       "                              as a same-session second opinion (read-only plan mode)",
+      "  ccstatusline-setup          print copy-paste instructions for wiring",
+      "                              baton widgets into ccstatusline",
+      "  ccstatusline-backup [--out <path>]",
+      "                              snapshot ~/.config/ccstatusline/settings.json",
+      "                              into ~/.claude/baton/ccstatusline-backups/",
+      "  ccstatusline-restore [<path>] [--list]",
+      "                              restore ccstatusline settings.json from the",
+      "                              latest baton-managed backup, or from <path>;",
+      "                              --list shows available backups instead",
       "",
       "Internal (Claude Code pipes data on stdin):",
       "  statusline                  render the statusline",
+      "  widget <name>               render a baton widget for ccstatusline composition",
+      "                              (name: badge|context-bar; flags: --color, --max-width N)",
       "  hook user-prompt-submit     UserPromptSubmit handler",
       "  hook pre-compact            PreCompact handler",
       "  hook session-start          SessionStart handler",
       "",
     ].join("\n"),
   );
+}
+
+function buildCcstatuslineSetup(): string {
+  const isTTY = !!process.stdout.isTTY;
+  const dim = (s: string): string => (isTTY ? color.dim(s) : s);
+  const bold = (s: string): string => (isTTY ? color.bold(s) : s);
+  const badgeCmd = buildCommand("widget badge --color --max-width 40");
+  const barCmd = buildCommand("widget context-bar --color --max-width 12");
+  return [
+    bold("baton + ccstatusline composition"),
+    "",
+    dim("Tip: run `baton ccstatusline-backup` before editing your ccstatusline"),
+    dim("config so you can `baton ccstatusline-restore` if something goes wrong."),
+    "",
+    "Two baton widgets to add to ccstatusline:",
+    "",
+    bold("1. Baton badge") + " — shows BATON.md goal when fresh, or ⚠ soft / ⚠ HARD when nudges have fired.",
+    "",
+    `   Command path:  ${badgeCmd}`,
+    "   maxWidth:      <leave blank — badge is already sized via --max-width>",
+    "   timeout:       3000",
+    "   preserveColors: ON",
+    "",
+    dim("   (--max-width 40 covers `BATON: ` (7 chars) + ~32 chars of goal title before"),
+    dim("   ellipsis; this matches the standalone statusline's default goal budget.)"),
+    "",
+    bold("2. Baton context-bar") + " — colored against baton's soft/hard thresholds (the same ones that drive nudges).",
+    "",
+    `   Command path:  ${barCmd}`,
+    "   maxWidth:      <leave blank — bar is already sized via --max-width>",
+    "   timeout:       3000",
+    "   preserveColors: ON",
+    "",
+    bold("How to add each one in ccstatusline:"),
+    "",
+    "  1. Run `ccstatusline` in a terminal.",
+    "  2. Use the TUI to add a Custom Command widget on the line/position you want.",
+    "  3. Paste the command path above into the command field.",
+    "  4. Press `t` to set timeout to 3000.",
+    "  5. Press `p` to turn ON preserveColors (so baton's threshold colors render).",
+    "  6. Save and exit.",
+    "",
+    "Both widgets read Claude Code's statusline JSON on stdin and emit one line on",
+    "stdout. They always exit 0; on error, stderr gets a diagnostic and stdout is",
+    "empty (the widget collapses). Drop `--color` from the command path if you'd",
+    "rather have ccstatusline's per-widget color settings paint the output.",
+    "",
+    "If you have not yet pointed ccstatusline at Claude Code:",
+    "  Set `statusLine.command` in ~/.claude/settings.json to `ccstatusline`",
+    "  (or your preferred invocation form), then re-run `baton install`.",
+    "",
+  ].join("\n");
 }
 
 async function main(): Promise<number> {
@@ -79,6 +152,43 @@ async function main(): Promise<number> {
       const line = await renderStatusline(raw);
       process.stdout.write(line + "\n");
       return 0;
+    }
+    case "widget": {
+      const widgetName = args[1] ?? "";
+      const widgetArgs = args.slice(2);
+      const raw = await readStdin();
+      await runWidget(widgetName, widgetArgs, raw);
+      return 0;
+    }
+    case "ccstatusline-setup": {
+      process.stdout.write(buildCcstatuslineSetup());
+      return 0;
+    }
+    case "ccstatusline-backup": {
+      const outIdx = rest.indexOf("--out");
+      if (outIdx >= 0 && (rest[outIdx + 1] === undefined || rest[outIdx + 1]?.startsWith("--"))) {
+        process.stderr.write("baton ccstatusline-backup: --out requires a path argument\n");
+        return 2;
+      }
+      const out = outIdx >= 0 ? rest[outIdx + 1] : undefined;
+      const outcome = backupCcstatusline({ out });
+      printCcsBackup(outcome);
+      return outcome.sourceExisted ? 0 : 1;
+    }
+    case "ccstatusline-restore": {
+      if (rest.includes("--list")) {
+        printCcsList(listCcstatuslineBackups());
+        return 0;
+      }
+      const fromArg = rest.find((a) => !a.startsWith("--"));
+      try {
+        const result = restoreCcstatusline({ from: fromArg });
+        printCcsRestore(result);
+        return 0;
+      } catch (err) {
+        process.stderr.write(`baton ccstatusline-restore: ${(err as Error).message}\n`);
+        return 1;
+      }
     }
     case "hook": {
       const raw = await readStdin();
