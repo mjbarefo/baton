@@ -1,11 +1,11 @@
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { userBatonTemplateOverridePath } from "../config.ts";
+import { legacyUserBatonTemplateOverridePath, userBatonTemplateOverridePath } from "../config.ts";
 
 /**
  * Resolve the absolute path of the embedded baton template, relative to this module.
- * Used by both the installer (to copy it into ~/.claude/skills/) and the UserPromptSubmit
- * hook (to inline the body at the hard threshold for automatic baton writing).
+ * Used by host installers (Claude slash commands, Codex skills, Gemini commands)
+ * and by UserPromptSubmit to inline the body at the hard threshold.
  */
 export function templatePath(): string {
   const candidates = [
@@ -26,7 +26,9 @@ function readBundledTemplate(): string {
 }
 
 export function readTemplateBodyWithOverride(): TemplateResult {
-  const overridePath = userBatonTemplateOverridePath();
+  const overridePath = existsSync(userBatonTemplateOverridePath())
+    ? userBatonTemplateOverridePath()
+    : legacyUserBatonTemplateOverridePath();
   const bundledTemplate = readBundledTemplate();
 
   if (!existsSync(overridePath)) {

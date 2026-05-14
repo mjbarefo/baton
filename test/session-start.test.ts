@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { TEST_HOME } from "./helpers/test-home.ts";
 
 const { runSessionStartHook } = await import("../src/hooks/session-start.ts");
-const BATON_ARCHIVE_DIR = join(TEST_HOME, ".claude", "baton", "archive");
+const BATON_ARCHIVE_DIR = join(TEST_HOME, ".baton", "archive");
 const USER_CLAUDE_DIR = join(TEST_HOME, ".claude");
 
 let tmp: string;
@@ -16,6 +16,7 @@ let origStderrWrite: typeof process.stderr.write;
 
 beforeEach(() => {
   tmp = mkdtempSync(join(tmpdir(), "baton-session-start-"));
+  rmSync(join(TEST_HOME, ".baton"), { recursive: true, force: true });
   stdoutCapture = "";
   stderrCapture = "";
   origStdoutWrite = process.stdout.write.bind(process.stdout);
@@ -35,11 +36,12 @@ afterEach(() => {
   process.stderr.write = origStderrWrite;
   rmSync(tmp, { recursive: true, force: true });
   rmSync(USER_CLAUDE_DIR, { recursive: true, force: true });
+  rmSync(join(TEST_HOME, ".baton"), { recursive: true, force: true });
 });
 
 describe("session-start hook", () => {
   test('source: "startup" -> no output, no archive side-effect', async () => {
-    const handoffDir = join(tmp, ".claude", "baton");
+    const handoffDir = join(tmp, ".baton");
     mkdirSync(handoffDir, { recursive: true });
     writeFileSync(join(handoffDir, "BATON.md"), "# baton\n");
 
@@ -53,7 +55,7 @@ describe("session-start hook", () => {
   });
 
   test('source: "clear" + fresh handoff -> emits additionalContext and archives handoff', async () => {
-    const handoffDir = join(tmp, ".claude", "baton");
+    const handoffDir = join(tmp, ".baton");
     mkdirSync(handoffDir, { recursive: true });
     writeFileSync(join(handoffDir, "BATON.md"), "# baton\nnext step\n");
 
@@ -74,7 +76,7 @@ describe("session-start hook", () => {
   });
 
   test('source: "clear" + stale handoff -> no output, file not touched', async () => {
-    const handoffDir = join(tmp, ".claude", "baton");
+    const handoffDir = join(tmp, ".baton");
     mkdirSync(handoffDir, { recursive: true });
     const handoffPath = join(handoffDir, "BATON.md");
     writeFileSync(handoffPath, "# stale\n");
@@ -99,7 +101,7 @@ describe("session-start hook", () => {
   });
 
   test('source: "resume" + fresh handoff -> same behavior as clear', async () => {
-    const handoffDir = join(tmp, ".claude", "baton");
+    const handoffDir = join(tmp, ".baton");
     mkdirSync(handoffDir, { recursive: true });
     writeFileSync(join(handoffDir, "BATON.md"), "# baton\nresume\n");
 

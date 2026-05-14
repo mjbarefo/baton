@@ -3,11 +3,27 @@ import { renderStatusline } from "./statusline/render.ts";
 import { runUserPromptSubmitHook } from "./hooks/user-prompt-submit.ts";
 import { runPreCompactHook } from "./hooks/pre-compact.ts";
 import { runSessionStartHook } from "./hooks/session-start.ts";
-import { install, printReport, uninstall, printUninstallReport, check, printCheckReport } from "./install/settings-patch.ts";
+import {
+  check,
+  checkHosts,
+  install,
+  installHosts,
+  printCheckReport,
+  printMultiHostCheckReport,
+  printMultiHostInstallReport,
+  printMultiHostUninstallReport,
+  printReport,
+  printUninstallReport,
+  uninstall,
+  uninstallHosts,
+  type HostSelection,
+} from "./install/settings-patch.ts";
 import { VERSION } from "./config.ts";
 import { catchBaton } from "./baton/catch.ts";
 import { drop } from "./baton/drop.ts";
 import { runReconstruct } from "./baton/reconstruct.ts";
+import { runValidate } from "./baton/validate.ts";
+import { batonStatus, printBatonStatus } from "./baton/status.ts";
 import { runSidecar, type SidecarHost } from "./sidecar/run.ts";
 import { isSidecarMode, type SidecarMode } from "./sidecar/prompts.ts";
 import {
@@ -30,18 +46,21 @@ async function readStdin(): Promise<string> {
 function usage(): void {
   process.stderr.write(
     [
-      `baton v${VERSION} — context-aware session baton for Claude Code`,
+      `baton v${VERSION} — context-aware session baton for coding agents`,
       "",
       "  npx ccbaton@latest          install or upgrade",
       "  npx ccbaton check           verify current install",
       "  npx ccbaton uninstall       remove",
       "",
       "Subcommands:",
-      "  install [--force]           patch ~/.claude/settings.json",
+      "  install [--host claude|codex|gemini|all] [--dry-run] [--force]",
+      "                              install host-native baton integration",
       "                              --force replaces an existing non-baton statusLine",
-      "  uninstall                   restore settings.json from backup, remove artifacts",
-      "  check                       show current install status (read-only)",
-      "  catch [--dry-run]           resume from the nearest BATON.md",
+      "  uninstall [--host claude|codex|gemini|all]   remove host integration",
+      "  check [--host claude|codex|gemini|all] [--json]  show install status",
+      "  validate [path] [--json] [--strict]  validate a BATON.md",
+      "  status [--json]             show project baton status",
+      "  catch [--host claude|codex|gemini] [--dry-run]  resume from BATON.md",
       "  drop                        archive the nearest BATON.md so /clear starts fresh",
       "  reconstruct <transcript-path> [--out <path>]   rebuild a baton from a transcript JSONL",
       "  list [--json]               list archived batons",
@@ -63,6 +82,21 @@ function usage(): void {
       "",
     ].join("\n"),
   );
+}
+
+function flagValue(args: string[], flag: string): string | undefined {
+  const idx = args.indexOf(flag);
+  if (idx === -1) return undefined;
+  const value = args[idx + 1];
+  return value && !value.startsWith("--") ? value : undefined;
+}
+
+function hostSelection(args: string[], allowAll = true): HostSelection | null {
+  const raw = flagValue(args, "--host");
+  if (!raw) return "claude";
+  if (raw === "claude" || raw === "codex" || raw === "gemini") return raw;
+  if (allowAll && raw === "all") return raw;
+  return null;
 }
 
 async function main(): Promise<number> {
@@ -98,6 +132,12 @@ async function main(): Promise<number> {
     case "install": {
       const force = args.includes("--force");
       const postinstall = args.includes("--postinstall");
+      const dryRun = args.includes("--dry-run");
+      const host = hostSelection(args);
+      if (!host) {
+        process.stderr.write("baton install: --host must be claude, codex, gemini, or all\n");
+        return 2;
+      }
       if (postinstall) {
         try {
           const report = install({ force, postinstall });
@@ -107,23 +147,65 @@ async function main(): Promise<number> {
         }
         return 0;
       }
+      if (host !== "claude" || dryRun) {
+        const report = installHosts({ host, force, dryRun });
+        printMultiHostInstallReport(report);
+        return 0;
+      }
       const report = install({ force, postinstall });
       printReport(report);
       return 0;
     }
     case "check": {
+      const json = args.includes("--json");
+      const host = hostSelection(args);
+      if (!host) {
+        process.stderr.write("baton check: --host must be claude, codex, gemini, or all\n");
+        return 2;
+      }
+      if (host !== "claude" || json) {
+        const report = checkHosts(host);
+        if (json) process.stdout.write(JSON.stringify(report, null, 2) + "\n");
+        else printMultiHostCheckReport(report);
+        return report.allPresent ? 0 : 1;
+      }
       const report = check();
       printCheckReport(report);
       return report.allPresent ? 0 : 1;
     }
     case "uninstall": {
+      const host = hostSelection(args);
+      if (!host) {
+        process.stderr.write("baton uninstall: --host must be claude, codex, gemini, or all\n");
+        return 2;
+      }
+      if (host !== "claude") {
+        const report = uninstallHosts(host);
+        printMultiHostUninstallReport(report);
+        return 0;
+      }
       const report = uninstall();
       printUninstallReport(report);
       return 0;
     }
     case "catch": {
       const dryRun = rest.includes("--dry-run");
-      return await catchBaton({ cwd: process.cwd(), dryRun });
+      const host = hostSelection(args, false);
+      if (!host || host === "all") {
+        process.stderr.write("baton catch: --host must be claude, codex, or gemini\n");
+        return 2;
+      }
+      return await catchBaton({ cwd: process.cwd(), dryRun, host });
+    }
+    case "validate": {
+      return runValidate(args.slice(1), process.cwd());
+    }
+    case "status": {
+      const json = rest.includes("--json");
+      const report = batonStatus(process.cwd());
+      if (json) process.stdout.write(JSON.stringify(report, null, 2) + "\n");
+      else printBatonStatus(report);
+      return report.baton.exists ? 0 : 1;
     }
     case "drop": {
       return drop({ cwd: process.cwd() });

@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
-import { batonArchiveDir } from "../config.ts";
+import { batonArchiveDir, legacyBatonArchiveDir } from "../config.ts";
 import { color } from "../statusline/color.ts";
 
 export interface ArchiveEntry {
@@ -14,7 +14,10 @@ export interface ArchiveEntry {
   sizeBytes: number;
 }
 
-const FALLBACK_PLACEHOLDER = "_unknown — Claude did not author this baton._";
+const FALLBACK_PLACEHOLDERS = new Set([
+  "_unknown — the active agent did not author this baton._",
+  "_unknown — Claude did not author this baton._",
+]);
 const GOAL_REGEX = /^## Current Goal\s*\n([^\n]+)/m;
 
 function parseTimestamp(id: string): Date {
@@ -31,49 +34,53 @@ function parseProject(id: string): string {
 }
 
 export function listArchives(): ArchiveEntry[] {
-  const dir = batonArchiveDir();
-  let files: string[];
-  try {
-    files = readdirSync(dir).filter(f => f.endsWith(".md"));
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
-    throw err;
-  }
-
   const entries: ArchiveEntry[] = [];
-  for (const file of files) {
-    const path = join(dir, file);
-    const id = file.replace(/\.md$/, "");
-    const stats = statSync(path);
-    const dropped = id.endsWith("-dropped");
+  const seen = new Set<string>();
+  for (const dir of [batonArchiveDir(), legacyBatonArchiveDir()]) {
+    let files: string[];
+    try {
+      files = readdirSync(dir).filter(f => f.endsWith(".md"));
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw err;
+    }
 
-    // Read body to find goal
-    const content = readFileSync(path, "utf8");
-    const match = content.match(GOAL_REGEX);
-    let goal = "";
-    let fallback = false;
+    for (const file of files) {
+      const path = join(dir, file);
+      if (seen.has(path)) continue;
+      seen.add(path);
+      const id = file.replace(/\.md$/, "");
+      const stats = statSync(path);
+      const dropped = id.endsWith("-dropped");
 
-    if (match && match[1]) {
-      goal = match[1].trim();
-      if (goal === FALLBACK_PLACEHOLDER || goal === "") {
+      // Read body to find goal
+      const content = readFileSync(path, "utf8");
+      const match = content.match(GOAL_REGEX);
+      let goal = "";
+      let fallback = false;
+
+      if (match && match[1]) {
+        goal = match[1].trim();
+        if (FALLBACK_PLACEHOLDERS.has(goal) || goal === "") {
+          goal = "_(fallback — goal unknown)_";
+          fallback = true;
+        }
+      } else {
         goal = "_(fallback — goal unknown)_";
         fallback = true;
       }
-    } else {
-      goal = "_(fallback — goal unknown)_";
-      fallback = true;
-    }
 
-    entries.push({
-      id,
-      path,
-      project: parseProject(id),
-      timestamp: parseTimestamp(id),
-      dropped,
-      fallback,
-      goal,
-      sizeBytes: stats.size
-    });
+      entries.push({
+        id,
+        path,
+        project: parseProject(id),
+        timestamp: parseTimestamp(id),
+        dropped,
+        fallback,
+        goal,
+        sizeBytes: stats.size
+      });
+    }
   }
 
   return entries.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());

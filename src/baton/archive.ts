@@ -20,11 +20,23 @@ function uniqueArchivePath(dir: string, stem: string): string {
   return join(dir, `${stem}-${i}.md`);
 }
 
+function projectRootForBaton(batonPath: string): string {
+  const batonDir = dirname(batonPath);
+  if (basename(batonDir) === ".baton") return dirname(batonDir);
+
+  const maybeClaudeDir = dirname(batonDir);
+  if (basename(batonDir) === "baton" && basename(maybeClaudeDir) === ".claude") {
+    return dirname(maybeClaudeDir);
+  }
+
+  return dirname(batonDir);
+}
+
 export function archiveBaton(batonPath: string, suffix = ""): string {
   const dir = batonArchiveDir();
   mkdirSync(dir, { recursive: true });
   const ts = new Date().toISOString().replace(/[:.]/g, "-");
-  const projectRoot = dirname(dirname(dirname(batonPath)));
+  const projectRoot = projectRootForBaton(batonPath);
   const projectName = basename(projectRoot) || "project";
   const tag = suffix ? `-${suffix}` : "";
   const archivePath = uniqueArchivePath(dir, `${projectName}-${ts}${tag}`);

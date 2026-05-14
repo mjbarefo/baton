@@ -49,7 +49,7 @@ let origStdoutWrite: typeof process.stdout.write;
 let origStderrWrite: typeof process.stderr.write;
 
 function writeBaton(project: string, body = SAMPLE_BATON): string {
-  const dir = join(project, ".claude", "baton");
+  const dir = join(project, ".baton");
   mkdirSync(dir, { recursive: true });
   const path = join(dir, "BATON.md");
   writeFileSync(path, body);
@@ -60,6 +60,7 @@ beforeEach(() => {
   tmp = join(tmpdir(), `baton-sidecar-${crypto.randomUUID()}`);
   mkdirSync(tmp, { recursive: true });
   rmSync(join(TEST_HOME, ".claude"), { recursive: true, force: true });
+  rmSync(join(TEST_HOME, ".baton"), { recursive: true, force: true });
   spawnMode = "exit";
   spawnExitCode = 0;
   spawnCalls.length = 0;
@@ -85,6 +86,7 @@ afterEach(() => {
   process.stderr.write = origStderrWrite;
   rmSync(tmp, { recursive: true, force: true });
   rmSync(join(TEST_HOME, ".claude"), { recursive: true, force: true });
+  rmSync(join(TEST_HOME, ".baton"), { recursive: true, force: true });
 });
 
 describe("runSidecar", () => {
@@ -130,7 +132,7 @@ describe("runSidecar", () => {
     const code = await runSidecar({ host: "codex", mode: "review", cwd: tmp, dryRun: true });
 
     expect(code).toBe(1);
-    expect(stderrCapture).toContain("no .claude/baton/BATON.md");
+    expect(stderrCapture).toContain("no .baton/BATON.md");
     expect(stderrCapture).toContain("/baton");
     expect(spawnCalls).toHaveLength(0);
   });

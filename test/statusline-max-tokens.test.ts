@@ -6,7 +6,7 @@ import { TEST_HOME } from "./helpers/test-home.ts";
 // Import after TEST_HOME sets USERPROFILE/HOME so batonStateDir() resolves correctly.
 const { renderStatusline } = await import("../src/statusline/render.ts");
 
-const STATE_DIR = join(TEST_HOME, ".claude", "baton", "state");
+const STATE_DIR = join(TEST_HOME, ".baton", "state");
 
 beforeEach(() => {
   rmSync(STATE_DIR, { recursive: true, force: true });

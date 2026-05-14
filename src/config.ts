@@ -35,7 +35,8 @@ if (process.env.BATON_FRESH_MS !== undefined && isNaN(_batonFreshRaw)) {
 }
 export const BATON_FRESH_MS = isNaN(_batonFreshRaw) ? _BATON_FRESH_MS_DEFAULT : _batonFreshRaw;
 
-export const BATON_REL_PATH = ".claude/baton/BATON.md";
+export const BATON_REL_PATH = ".baton/BATON.md";
+export const LEGACY_BATON_REL_PATH = ".claude/baton/BATON.md";
 
 export function userHomeDir(): string {
   if (process.platform === "win32") {
@@ -48,8 +49,56 @@ export function userClaudeDir(): string {
   return join(userHomeDir(), ".claude");
 }
 
+export function userCodexDir(): string {
+  return join(userHomeDir(), ".codex");
+}
+
+export function userGeminiDir(): string {
+  return join(userHomeDir(), ".gemini");
+}
+
+export function userBatonDir(): string {
+  return join(userHomeDir(), ".baton");
+}
+
+export function userBatonInstallDir(): string {
+  return join(userBatonDir(), "install");
+}
+
+export function userAgentsDir(): string {
+  return join(userHomeDir(), ".agents");
+}
+
+export function userAgentsSkillsDir(): string {
+  return join(userAgentsDir(), "skills");
+}
+
+export function userAgentsBatonSkillDir(): string {
+  return join(userAgentsSkillsDir(), "baton");
+}
+
+export function userAgentsBatonSkillPath(): string {
+  return join(userAgentsBatonSkillDir(), "SKILL.md");
+}
+
 export function userSettingsPath(): string {
   return join(userClaudeDir(), "settings.json");
+}
+
+export function userCodexConfigPath(): string {
+  return join(userCodexDir(), "config.toml");
+}
+
+export function userGeminiSettingsPath(): string {
+  return join(userGeminiDir(), "settings.json");
+}
+
+export function userGeminiExtensionsDir(): string {
+  return join(userGeminiDir(), "extensions");
+}
+
+export function userGeminiBatonExtensionDir(): string {
+  return join(userGeminiExtensionsDir(), "baton");
 }
 
 export function userCommandsDir(): string {
@@ -57,6 +106,10 @@ export function userCommandsDir(): string {
 }
 
 export function userBatonIgnorePath(): string {
+  return join(userBatonDir(), "ignore");
+}
+
+export function legacyUserBatonIgnorePath(): string {
   return join(userClaudeDir(), "baton-ignore");
 }
 
@@ -89,19 +142,39 @@ export function userBatonSkillPath(): string {
 }
 
 export function userBatonTemplateOverridePath(): string {
+  return join(userBatonDir(), "template.md");
+}
+
+export function legacyUserBatonTemplateOverridePath(): string {
   return join(userClaudeDir(), "baton-template.md");
 }
 
 export function batonStateDir(): string {
+  return join(userBatonDir(), "state");
+}
+
+export function legacyBatonStateDir(): string {
   return join(userClaudeDir(), "baton", "state");
 }
 
 export function batonArchiveDir(): string {
+  return join(userBatonDir(), "archive");
+}
+
+export function legacyBatonArchiveDir(): string {
   return join(userClaudeDir(), "baton", "archive");
 }
 
 export function installManifestPath(): string {
+  return join(userBatonInstallDir(), "claude.json");
+}
+
+export function legacyInstallManifestPath(): string {
   return join(userClaudeDir(), "baton", "install-manifest.json");
+}
+
+export function hostInstallManifestPath(host: string): string {
+  return join(userBatonInstallDir(), `${host}.json`);
 }
 
 export const SUBCOMMANDS = {

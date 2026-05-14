@@ -54,8 +54,8 @@ describe("renderBatonBadge", () => {
 
     beforeEach(() => {
       tmpCwd = mkdtempSync(join(tmpdir(), "baton-cwd-"));
-      batonPath = join(tmpCwd, ".claude/baton/BATON.md");
-      mkdirSync(join(tmpCwd, ".claude/baton"), { recursive: true });
+      batonPath = join(tmpCwd, ".baton/BATON.md");
+      mkdirSync(join(tmpCwd, ".baton"), { recursive: true });
     });
 
     afterEach(() => {
@@ -230,9 +230,9 @@ describe("renderStatusline width adaptation", () => {
     setColumns(44);
     const tmpCwd = mkdtempSync(join(tmpdir(), "baton-statusline-width-"));
     try {
-      mkdirSync(join(tmpCwd, ".claude/baton"), { recursive: true });
+      mkdirSync(join(tmpCwd, ".baton"), { recursive: true });
       writeFileSync(
-        join(tmpCwd, ".claude/baton/BATON.md"),
+        join(tmpCwd, ".baton/BATON.md"),
         "# Title\n\n## Current Goal\nShip a very small but still meaningful baton goal in the statusline\n",
       );
 

@@ -3,13 +3,17 @@ import { BATON_REL_PATH } from "../config.ts";
 import { archiveBaton } from "./archive.ts";
 import { findBaton } from "./find.ts";
 
+export type CatchHost = "claude" | "codex" | "gemini";
+
 export interface CatchOptions {
   cwd: string;
   dryRun?: boolean;
+  host?: CatchHost;
 }
 
 export async function catchBaton(opts: CatchOptions): Promise<number> {
   const baton = findBaton(opts.cwd);
+  const host = opts.host ?? "claude";
   if (!baton) {
     process.stderr.write(
       `baton catch: no ${BATON_REL_PATH} found walking up from ${opts.cwd}. It may already have been consumed by /clear or another baton catch.\n`,
@@ -18,7 +22,8 @@ export async function catchBaton(opts: CatchOptions): Promise<number> {
   }
 
   if (opts.dryRun) {
-    process.stdout.write(`[dry-run] would archive ${baton} and spawn claude with resume prompt\n`);
+    const invocation = catchInvocation(host, "<resume prompt>");
+    process.stdout.write(`[dry-run] would archive ${baton} and spawn ${JSON.stringify(invocation)}\n`);
     return 0;
   }
 
@@ -30,16 +35,23 @@ export async function catchBaton(opts: CatchOptions): Promise<number> {
     `Read ${archivePath} top-to-bottom. Confirm in one short sentence that you understand the state. ` +
     `Then execute the "Next Concrete Action" from that file. Do not re-plan — trust the baton.`;
 
-  const child = spawn("claude", [initialPrompt], {
+  const [bin, argv] = catchInvocation(host, initialPrompt);
+  const child = spawn(bin, argv, {
     stdio: "inherit",
     cwd: opts.cwd,
   });
   return new Promise((res) => {
     child.on("exit", (code) => res(code ?? 0));
     child.on("error", (err) => {
-      process.stderr.write(`baton catch: failed to spawn claude: ${String(err)}\n`);
+      process.stderr.write(`baton catch: failed to spawn ${host}: ${String(err)}\n`);
       process.stderr.write(`baton catch: your baton is preserved at: ${archivePath}\n`);
       res(1);
     });
   });
+}
+
+function catchInvocation(host: CatchHost, prompt: string): [string, string[]] {
+  if (host === "codex") return ["codex", [prompt]];
+  if (host === "gemini") return ["gemini", ["--prompt", prompt]];
+  return ["claude", [prompt]];
 }

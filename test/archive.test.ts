@@ -26,10 +26,10 @@ mock.module("node:fs", () => ({
 
 const { archiveBaton, PartialArchiveError } = await import("../src/baton/archive.ts");
 
-const ARCHIVE_DIR = join(TEST_HOME, ".claude", "baton", "archive");
+const ARCHIVE_DIR = join(TEST_HOME, ".baton", "archive");
 
 function writeBaton(project: string, body = "# Baton\n"): string {
-  const dir = join(project, ".claude", "baton");
+  const dir = join(project, ".baton");
   mkdirSync(dir, { recursive: true });
   const path = join(dir, "BATON.md");
   writeFileSync(path, body);
@@ -44,6 +44,7 @@ beforeEach(() => {
   tmp = join(tmpdir(), `baton-archive-${crypto.randomUUID()}`);
   mkdirSync(tmp, { recursive: true });
   rmSync(join(TEST_HOME, ".claude"), { recursive: true, force: true });
+  rmSync(join(TEST_HOME, ".baton"), { recursive: true, force: true });
   renameSyncThrows = null;
   unlinkSyncThrows = null;
   stderrCapture = "";
@@ -58,6 +59,7 @@ afterEach(() => {
   process.stderr.write = origStderrWrite;
   rmSync(tmp, { recursive: true, force: true });
   rmSync(join(TEST_HOME, ".claude"), { recursive: true, force: true });
+  rmSync(join(TEST_HOME, ".baton"), { recursive: true, force: true });
   setSystemTime();
 });
 

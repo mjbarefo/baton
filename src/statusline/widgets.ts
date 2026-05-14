@@ -3,12 +3,13 @@ import { join } from "node:path";
 import { color, visibleLength } from "./color.ts";
 import {
   BATON_FRESH_MS,
-  BATON_REL_PATH,
   batonStateDir,
+  legacyBatonStateDir,
   THRESHOLDS,
 } from "../config.ts";
 import { formatK } from "./bar.ts";
 import { normalizeLevel } from "../baton/state.ts";
+import { freshestExistingBatonWalkingUp } from "../baton/freshness.ts";
 
 export interface RateLimit {
   used_percentage?: number | null;
@@ -90,12 +91,12 @@ export function renderBatonBadge(
   maxWidth?: number,
 ): string {
   if (cwd) {
-    const batonPath = join(cwd, BATON_REL_PATH);
-    if (existsSync(batonPath)) {
+    const baton = freshestExistingBatonWalkingUp(cwd);
+    if (baton?.fresh) {
       try {
-        const stat = statSync(batonPath);
+        const stat = statSync(baton.path);
         if (Date.now() - stat.mtimeMs < BATON_FRESH_MS) {
-          const goal = readBatonGoal(batonPath, stat.mtimeMs);
+          const goal = readBatonGoal(baton.path, stat.mtimeMs);
           return renderFreshBatonBadge(goal, maxWidth);
         }
       } catch {
@@ -105,8 +106,12 @@ export function renderBatonBadge(
   }
 
   if (sessionId) {
-    const statePath = join(batonStateDir(), `${sessionId}.json`);
-    if (existsSync(statePath)) {
+    const statePaths = [
+      join(batonStateDir(), `${sessionId}.json`),
+      join(legacyBatonStateDir(), `${sessionId}.json`),
+    ];
+    for (const statePath of statePaths) {
+      if (!existsSync(statePath)) continue;
       try {
         const state = JSON.parse(readFileSync(statePath, "utf8")) as { level?: unknown };
         const level = normalizeLevel(state.level);

@@ -1,5 +1,6 @@
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { legacyUserBatonIgnorePath, userBatonIgnorePath } from "../config.ts";
 
 export interface RedactPattern {
   regex: RegExp;
@@ -66,8 +67,12 @@ function parseIgnoreFile(path: string): RedactPattern[] {
 }
 
 export function loadUserPatterns(userHome: string): RedactPattern[] {
-  const path = join(userHome, ".claude", "baton-ignore");
-  return parseIgnoreFile(path);
+  const newPath = userBatonIgnorePath();
+  const legacyPath = legacyUserBatonIgnorePath();
+  return [
+    ...parseIgnoreFile(newPath),
+    ...(legacyPath === newPath ? [] : parseIgnoreFile(legacyPath)),
+  ];
 }
 
 export function loadProjectPatterns(cwd: string): RedactPattern[] {

@@ -22,7 +22,7 @@ export function drop(opts: DropOptions): number {
     if (err instanceof PartialArchiveError) {
       process.stdout.write(`baton drop: archived ${baton} → ${err.archivePath}\n`);
       process.stderr.write(
-        `baton drop: source file could not be removed — it may re-inject on next /clear. Run /drop again.\n`,
+        `baton drop: source file could not be removed — it may re-inject on next resume. Run baton drop again.\n`,
       );
       return 1;
     }

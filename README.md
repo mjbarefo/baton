@@ -5,15 +5,17 @@
 <h1 align="center">baton</h1>
 
 <p align="center">
-  <em>Snapshot-and-resume for Claude Code sessions. Never lose context to auto-compaction again.</em>
+  <em>Local-first snapshot-and-resume for coding agents.</em>
 </p>
 
-baton is a Claude Code session snapshot and handoff tool. It writes the current working state into a structured `BATON.md` so a fresh Claude Code session can resume with the goal, recent decisions, active files, gotchas, and next concrete action intact instead of relying on degraded compacted context.
+baton writes the current working state into a structured `.baton/BATON.md` so a fresh Claude Code, Codex CLI, or Gemini CLI session can resume with the goal, recent decisions, active files, gotchas, and next concrete action intact.
+
+The baton file is the host-neutral contract. Claude Code, Codex CLI, and Gemini CLI are adapters around that contract.
 
 ## Prerequisites
 
 - Node.js `>=20`
-- Claude Code
+- At least one supported host: Claude Code, Codex CLI, or Gemini CLI
 
 Bun is only required for local development from this repository.
 
@@ -29,48 +31,86 @@ Or with Bun:
 bunx ccbaton@latest
 ```
 
-The installer patches `~/.claude/settings.json` with self-locating commands that keep working after `npx`/`bunx` exits. Published installs use the bundled Node.js CLI; source-tree installs use `bun run src/cli.ts`.
+The default install remains Claude-compatible:
 
-If you install globally (`npm install -g ccbaton`), the `postinstall` script runs the installer automatically.
+```bash
+baton install
+```
+
+Install host-native integrations explicitly:
+
+```bash
+baton install --host claude
+baton install --host codex
+baton install --host gemini
+baton install --host all
+baton install --dry-run --host all
+```
 
 What gets installed:
 
-- a statusline command
-- `UserPromptSubmit`, `PreCompact`, and `SessionStart` hooks
-- `/baton`, `/drop`, `/baton-codex`, and `/baton-gemini` slash commands
-
-After installing, restart Claude Code so the slash commands and statusline reload.
+| Host | Integration | Notes |
+| --- | --- | --- |
+| Claude Code | statusline, `UserPromptSubmit`, `PreCompact`, `SessionStart`, `/baton`, `/drop`, `/baton-codex`, `/baton-gemini` | Closest parity. Claude remains the only host with `PreCompact` fallback blocking. |
+| Codex CLI | `~/.codex/config.toml` hooks plus a baton skill in `~/.agents/skills/baton/` | Supports native resume/nudge surfaces where hooks are available. |
+| Gemini CLI | `~/.gemini/extensions/baton` extension with commands, context, and lifecycle hooks | Uses Gemini extension and command surfaces. |
 
 ## Daily Flow
 
-Use `/baton` when you reach a natural stopping point and want a fresh Claude Code session to pick up from the current one. Claude writes `.claude/baton/BATON.md` with the current session state.
+Use the host-native baton command when you reach a stopping point. The agent writes `.baton/BATON.md`, runs `baton validate`, and stops.
 
-Use `/clear` to start a clean session that automatically resumes from the baton. The `SessionStart` hook injects the baton into context, then archives it so the resume is one-shot.
+Use a fresh session to resume. Where the host supports session-start hooks, baton injects the pending baton into context and archives it so the resume is one-shot.
 
-Use `/drop` before `/clear` when you want to discard the pending baton and start completely fresh.
-
-Use `/baton-codex` or `/baton-gemini` after writing a baton when you want a read-only second opinion in the current Claude Code session. These commands do not start a new session and do not replace `/baton` + `/clear`; they run a sidecar model, relay its output back into the active conversation, and leave the user to decide what to do next. Each command asks whether the sidecar should run in `review`, `critique`, or `alternative` mode, then sends the current `BATON.md` through the same redaction pipeline used by the fallback writer. The Codex sidecar runs with `codex exec --sandbox read-only --ephemeral`; the Gemini sidecar runs headlessly with `--approval-mode plan`.
-
-Use `baton catch` when the original session or terminal is already gone but `.claude/baton/BATON.md` still exists. If installed from the renamed package binary, use `baton catch`.
+Use `baton catch` when the original session or terminal is gone but `.baton/BATON.md` still exists:
 
 ```bash
-baton catch
-baton catch --dry-run
-baton sidecar codex --mode review --dry-run
-baton sidecar gemini --mode review --dry-run
+baton catch --host claude
+baton catch --host codex
+baton catch --host gemini
+baton catch --dry-run --host codex
 ```
 
-## Statusline
+Use `baton drop` before starting fresh when you want to discard the pending baton.
 
-The statusline shows model, branch, context usage, baton state, rate limit, duration, and cost in one compact row:
+Use sidecars when you want a read-only second opinion on the current baton:
+
+```bash
+baton sidecar codex --mode review
+baton sidecar gemini --mode critique
+baton sidecar codex --mode alternative --dry-run
+```
+
+Sidecars are review tools. They receive a redacted baton, run in read-only or plan mode, and are instructed not to modify files or run commands.
+
+## Baton Files
+
+The canonical project baton path is:
 
 ```text
-Sonnet 4.5 │ main* │ [======----] 82k/200k │ BATON: Refactor settings-patch │ 5h 71% │ 12m │ $1.24
+.baton/BATON.md
 ```
 
-When context gets high, baton nudges Claude to snapshot. At the hard threshold, it injects the baton protocol directly so Claude writes the baton before auto-compaction can discard useful state.
+For one release, baton also reads the legacy Claude path:
 
-When the 5-hour rate-limit is above 90%, baton escalates the hard nudge earlier (at ~45% of the context window instead of 60%), so you snapshot before one more long turn hits the rate wall and prevents Claude from authoring a baton on demand.
+```text
+.claude/baton/BATON.md
+```
+
+New writes use `.baton/BATON.md`. Shared user state now lives under `~/.baton/`; legacy `~/.claude/baton/*`, `~/.claude/baton-template.md`, and `~/.claude/baton-ignore` are still read for compatibility.
+
+## Status And Validation
+
+```bash
+baton status
+baton status --json
+baton validate
+baton validate .baton/BATON.md
+baton validate --strict --json
+baton check --host all
+baton check --host all --json
+```
+
+Validation checks that required sections appear exactly once, the current goal and next action are concrete, active work has a valid state, recent test/build state is explicit, and secret-like content is not present.
 
 ## Configuration
 
@@ -80,15 +120,17 @@ When the 5-hour rate-limit is above 90%, baton escalates the hard nudge earlier 
 BATON_FRESH_MS=1800000 claude
 ```
 
-`SESSION_AGE_NUDGE_MS` controls the session-age nudge threshold. After 5 hours in a session with at least 30k tokens in context, baton suggests a snapshot even if token pressure is low. Configurable if you prefer a different window:
+`SESSION_AGE_NUDGE_MS` controls the session-age nudge threshold. After 5 hours in a session with at least 30k tokens in context, baton suggests a snapshot even if token pressure is low:
 
 ```bash
-SESSION_AGE_NUDGE_MS=10800000 claude  # nudge after 3 hours instead
+SESSION_AGE_NUDGE_MS=10800000 claude
 ```
 
 ### Custom baton template
 
-Create `~/.claude/baton-template.md` to override the default baton skeleton. The file must start with frontmatter:
+Create `~/.baton/template.md` to override the default baton skeleton. The legacy `~/.claude/baton-template.md` path is still read for compatibility.
+
+The file must start with frontmatter:
 
 ```yaml
 ---
@@ -97,73 +139,58 @@ description: Your description
 ---
 ```
 
-To add sections instead of fully replacing, include `<!-- baton:extend -->` in your file — the bundled template body is spliced in at that point.
-
-Re-run `npx ccbaton` to apply changes.
+To add sections instead of fully replacing, include `<!-- baton:extend -->` in your file. The bundled template body is spliced in at that point.
 
 ### Redaction
 
-The PreCompact fallback baton (written when auto-compact was about to fire and no fresh `/baton` existed) is passed through a redaction step before writing to disk. Default patterns cover common API keys, AWS/GitHub tokens, JWTs, and bearer headers.
+Fallback batons and sidecar prompts are passed through a redaction step before writing or external CLI execution. Default patterns cover common API keys, AWS/GitHub tokens, JWTs, and bearer headers.
 
 Add custom patterns to:
-- `~/.claude/baton-ignore` — user-level, applied to every project
-- `.batonignore` — project-level, applied to the current cwd only
 
-Format: one regex per line, `#` for comments, optional `LABEL:::REGEX` to name the pattern. Empty lines ignored.
+- `~/.baton/ignore` — user-level, applied to every project
+- `.batonignore` — project-level, applied to the current project
 
-Redaction only applies to the fallback writer, not to Claude-authored `/baton` output. Don't paste secrets into your own batons.
+The legacy `~/.claude/baton-ignore` file is still read for compatibility.
 
-To disable entirely (not recommended): `BATON_NO_REDACT=1`.
+Format: one regex per line, `#` for comments, optional `LABEL:::REGEX` to name the pattern. Empty lines are ignored.
 
-### Recovering from a lost baton
+To disable entirely, use `BATON_NO_REDACT=1`.
 
-If you lost a baton but still have the transcript (Claude Code writes them to `~/.claude/projects/<slug>/<session-id>.jsonl`), you can rebuild a best-effort baton:
+## Recovery
+
+If you lost a baton but still have a transcript, rebuild a best-effort baton:
 
 ```bash
-baton reconstruct ~/.claude/projects/my-project/abc123.jsonl
+baton reconstruct path/to/session.jsonl
 ```
 
-By default this writes to `<cwd>/.claude/baton/BATON.md`. Use `--out` for a custom location. The rebuilt baton uses the same fallback format as the PreCompact auto-write — deterministic, less structured than a Claude-authored baton, but enough to resume.
+By default this writes to `<cwd>/.baton/BATON.md`. Use `--out` for a custom location. The rebuilt baton uses the same deterministic fallback format as the auto-write.
+
+Archived batons are stored in `~/.baton/archive/`; legacy `~/.claude/baton/archive/` entries are still listed:
+
+```bash
+baton list
+baton show <id|prefix>
+baton recall <query>
+baton prune --older-than-days 30 --keep 50
+```
 
 ## Commands
 
-### Archive
-
-Archived batons are moved to `~/.claude/baton/archive/`. You can view, search, and clean up the archive:
-
 ```bash
-baton list                    # list archived batons (newest first)
-baton show <id|prefix>        # read a specific archived baton
-baton recall <query>          # search across your archive
-baton prune --older-than-days 30 --keep 50  # clean up old archives
-```
+npx ccbaton@latest
+npx ccbaton check --host all
+npx ccbaton uninstall --host all
 
-Example `baton list` output:
-```text
-baton archive (3 entries)
-
-  2026-04-21 19:32   baton           Implement rate-limit nudge
-  2026-04-21 14:05   baton           Refactor settings-patch
-  2026-04-19 08:12   other-proj      _(dropped)_
-```
-
-### General
-
-```bash
-npx ccbaton@latest          # install or upgrade
-npx ccbaton check           # verify current install state (exits 1 if anything missing)
-npx ccbaton uninstall       # remove hooks, statusline, commands; restore settings.json from backup
-```
-
-After installing globally, the `baton` binary is available directly:
-
-```bash
 baton --version
-baton install [--force]     # --force replaces a non-baton statusLine
-baton uninstall
-baton check
-baton catch [--dry-run]
+baton install [--host claude|codex|gemini|all] [--dry-run] [--force]
+baton uninstall [--host claude|codex|gemini|all]
+baton check [--host claude|codex|gemini|all] [--json]
+baton status [--json]
+baton validate [path] [--json] [--strict]
+baton catch [--host claude|codex|gemini] [--dry-run]
 baton drop
+baton sidecar codex|gemini --mode review|critique|alternative [--dry-run]
 ```
 
 ## Development
@@ -174,12 +201,12 @@ Bun is used to run tests and build the npm package:
 bun install
 bun test
 bun run build
-bun run src/cli.ts install
+bun run src/cli.ts install --host all
 ```
 
 The package binary is `baton`; `bun run build` writes the portable Node.js CLI to `dist/cli.js` with a Node shebang for npm/npx execution.
 
 ## Migrating From Handoff To Baton
 
-- In-flight `.claude/baton/HANDOFF.md` files can be renamed to `BATON.md` manually and will be picked up by the `SessionStart` hook as usual.
-- The installer automatically removes old `~/.claude/commands/handoff*.md` and `~/.claude/skills/handoff/` on next install.
+- In-flight `.baton/HANDOFF.md` files can be renamed to `BATON.md` manually and will be picked up by the `SessionStart` hook as usual.
+- The installer automatically removes old `~/.claude/commands/handoff*.md` and `~/.claude/skills/handoff/` on next Claude install.

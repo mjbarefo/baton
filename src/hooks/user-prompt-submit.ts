@@ -5,6 +5,7 @@ import { readFirstTimestamp } from "../transcript/read.ts";
 import { readTemplateBody } from "../baton/template-loader.ts";
 import {
   batonStateDir,
+  legacyBatonStateDir,
   NUDGE_HARD_UNDER_RATE_PRESSURE,
   RATE_LIMIT_ELEVATED_PCT,
   SESSION_AGE_NUDGE_MIN_TOKENS,
@@ -87,10 +88,10 @@ function message(
   const k = Math.round(tokens / 1000);
   const maxK = Math.round(max / 1000);
   if (level === "soft") {
-    return `[baton] Context at ~${k}k/${maxK}k. At your next natural stopping point — after finishing the current thought, not mid-tool-call — run \`/baton\` to snapshot session state. A fresh session resumes better than auto-compaction.`;
+    return `[baton] Context at ~${k}k/${maxK}k. At your next natural stopping point — after finishing the current thought, not mid-tool-call — run the baton workflow to snapshot session state. A fresh session resumes better than auto-compaction.`;
   }
 
-  // HARD threshold: don't just tell Claude to run /baton, inline the full skill body
+  // HARD threshold: don't just suggest baton, inline the full skill body
   // so it writes the baton automatically on its next response. No user typing required.
   let templateBody = "";
   try {
@@ -118,10 +119,12 @@ export async function runUserPromptSubmitHook(raw: string): Promise<void> {
   const transcript = payload.transcript_path;
   const sessionId = payload.session_id;
   if (!transcript || !sessionId) return;
+  const hookEventName = payload.hook_event_name ?? "UserPromptSubmit";
 
   const snap = snapshotFromTranscript(transcript);
   const statePath = join(batonStateDir(), `${sessionId}.json`);
-  const prior = readState(statePath);
+  const legacyStatePath = join(legacyBatonStateDir(), `${sessionId}.json`);
+  const prior = existsSync(statePath) ? readState(statePath) : readState(legacyStatePath);
   const maxTokens = prior.maxTokens ?? DEFAULT_MAX_TOKENS;
 
   // --- Token / rate-limit nudge ---
@@ -134,7 +137,7 @@ export async function runUserPromptSubmitHook(raw: string): Promise<void> {
     writeState(statePath, prior, { level: tokenLevel });
     const output = {
       hookSpecificOutput: {
-        hookEventName: "UserPromptSubmit",
+        hookEventName,
         // Use max_tokens persisted by the statusline (which receives it from Claude Code).
         // Falls back to 200k if the statusline hasn't run yet this session.
         additionalContext: message(tokenLevel, snap.total, maxTokens, reason, prior.rateLimit5hPct),
@@ -157,8 +160,8 @@ export async function runUserPromptSubmitHook(raw: string): Promise<void> {
         const k = Math.round(snap.total / 1000);
         const output = {
           hookSpecificOutput: {
-            hookEventName: "UserPromptSubmit",
-            additionalContext: `[baton] This session is ~${hours}h old with ~${k}k tokens loaded. At your next natural stopping point, consider running \`/baton\` to snapshot state and start fresh — a new session will have a clean context.`,
+            hookEventName,
+            additionalContext: `[baton] This session is ~${hours}h old with ~${k}k tokens loaded. At your next natural stopping point, consider running the baton workflow to snapshot state and start fresh — a new session will have a clean context.`,
           },
         };
         process.stdout.write(JSON.stringify(output));

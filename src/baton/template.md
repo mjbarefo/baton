@@ -1,16 +1,16 @@
 ---
 name: baton
-description: Snapshot the current Claude Code session into a structured BATON.md so a fresh session can resume without context rot. Invoke this skill whenever the user types /baton, says "save progress", "wrap up", "hand off the session", "snapshot", or "let's stop here"; when context is large and a stopping point is near; or when the baton hook has injected baton protocol instructions.
+description: Snapshot the current coding-agent session into a structured BATON.md so a fresh Claude Code, Codex, or Gemini CLI session can resume without context rot. Invoke this skill whenever the user types /baton, says "save progress", "wrap up", "hand off the session", "snapshot", or "let's stop here"; when context is large and a stopping point is near; or when the baton hook has injected baton protocol instructions.
 disable-model-invocation: false
 ---
 
 # /baton — Session baton
 
-You are about to write a baton that lets a **fresh** Claude Code session (no memory of this conversation) pick up exactly where you left off, with higher fidelity than auto-compaction would provide.
+You are about to write a baton that lets a **fresh** coding-agent session (no memory of this conversation) pick up exactly where you left off, with higher fidelity than auto-compaction would provide.
 
 ## Write the file
 
-Write to `.claude/baton/BATON.md` in the current working directory. Create the `.claude/baton/` directory if it does not exist. Overwrite any existing file at that path.
+Write to `.baton/BATON.md` in the current working directory. Create the `.baton/` directory if it does not exist. Overwrite any existing file at that path.
 
 ## Required structure
 
@@ -19,7 +19,7 @@ Use this exact skeleton. Every section must appear. If a section has nothing to 
 ```markdown
 # Baton — <short project/task name>
 
-_Written by Claude at <ISO timestamp>. Fresh session: read this top-to-bottom before doing anything else._
+_Written by <host/model name> at <ISO timestamp>. Fresh session: read this top-to-bottom before doing anything else._
 
 ## Current Goal
 <One sentence. The north star of this session. What is the user ultimately trying to achieve right now?>
@@ -67,10 +67,20 @@ _Written by Claude at <ISO timestamp>. Fresh session: read this top-to-bottom be
 5. **Do not invent user preferences.** Only include preferences you actually observed this session.
 6. **If you are uncertain about any field, say so explicitly** rather than guessing. A fresh session trusts this document.
 
+## Validate once
+
+After writing the file, run:
+
+```bash
+baton validate .baton/BATON.md
+```
+
+If validation fails, fix the baton once and run the validator again. Do not continue with unrelated work.
+
 ## After writing
 
 Tell the user, exactly:
 
-> Baton written to `.claude/baton/BATON.md`. Type `/clear` for a fresh session that auto-resumes — or open a new terminal and run `baton catch` if this session is ending.
+> Baton written to `.baton/BATON.md`. In Claude Code, type `/clear` to auto-resume; in any host, open a new terminal and run `baton catch --host claude|codex|gemini` if this session is ending.
 
 Do not do any other work after writing the baton. The fresh session will pick up from the file.

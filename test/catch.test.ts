@@ -27,7 +27,7 @@ mock.module("node:child_process", () => ({
 }));
 
 const { catchBaton } = await import("../src/baton/catch.ts");
-const BATON_ARCHIVE_DIR = join(TEST_HOME, ".claude", "baton", "archive");
+const BATON_ARCHIVE_DIR = join(TEST_HOME, ".baton", "archive");
 
 let tmp: string;
 let stdoutCapture: string;
@@ -36,7 +36,7 @@ let origStdoutWrite: typeof process.stdout.write;
 let origStderrWrite: typeof process.stderr.write;
 
 function writeBaton(project: string, body = "# Baton\nnext\n"): string {
-  const dir = join(project, ".claude", "baton");
+  const dir = join(project, ".baton");
   mkdirSync(dir, { recursive: true });
   const path = join(dir, "BATON.md");
   writeFileSync(path, body);
@@ -47,6 +47,7 @@ beforeEach(() => {
   tmp = join(tmpdir(), `baton-catch-${crypto.randomUUID()}`);
   mkdirSync(tmp, { recursive: true });
   rmSync(join(TEST_HOME, ".claude"), { recursive: true, force: true });
+  rmSync(join(TEST_HOME, ".baton"), { recursive: true, force: true });
   spawnMode = "exit";
   spawnCalls.length = 0;
   stdoutCapture = "";
@@ -68,6 +69,7 @@ afterEach(() => {
   process.stderr.write = origStderrWrite;
   rmSync(tmp, { recursive: true, force: true });
   rmSync(join(TEST_HOME, ".claude"), { recursive: true, force: true });
+  rmSync(join(TEST_HOME, ".baton"), { recursive: true, force: true });
 });
 
 describe("catchBaton", () => {
@@ -108,11 +110,37 @@ describe("catchBaton", () => {
     expect(existsSync(archivePath)).toBe(true);
   });
 
+  test("spawns the selected Codex host", async () => {
+    const project = join(tmp, "project-codex");
+    writeBaton(project, "# Baton\ncodex resume\n");
+
+    const code = await catchBaton({ cwd: project, host: "codex" });
+
+    expect(code).toBe(0);
+    expect(spawnCalls).toHaveLength(1);
+    expect(spawnCalls[0]?.[0]).toBe("codex");
+    expect(spawnCalls[0]?.[1]).toEqual([expect.stringContaining("Next Concrete Action")]);
+  });
+
+  test("dry-run shows the selected Gemini invocation", async () => {
+    const project = join(tmp, "project-gemini");
+    const baton = writeBaton(project);
+
+    const code = await catchBaton({ cwd: project, dryRun: true, host: "gemini" });
+
+    expect(code).toBe(0);
+    expect(existsSync(baton)).toBe(true);
+    expect(stdoutCapture).toContain("[dry-run]");
+    expect(stdoutCapture).toContain('"gemini"');
+    expect(stdoutCapture).toContain("--prompt");
+    expect(spawnCalls).toHaveLength(0);
+  });
+
   test("returns a graceful error when no baton exists", async () => {
     const code = await catchBaton({ cwd: tmp });
 
     expect(code).toBe(1);
-    expect(stderrCapture).toContain("no .claude/baton/BATON.md found");
+    expect(stderrCapture).toContain("no .baton/BATON.md found");
     expect(spawnCalls).toHaveLength(0);
   });
 
