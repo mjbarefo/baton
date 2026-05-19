@@ -65,7 +65,7 @@ The statusline shows model, branch, context usage, baton state, rate limit, dura
 Sonnet 4.5 │ main* │ [======----] 82k/200k │ BATON: Refactor settings-patch │ 5h 71% │ 12m │ $1.24
 ```
 
-When context gets high, baton nudges Claude to snapshot. At the hard threshold, it injects the baton protocol directly so Claude writes the baton before auto-compaction can discard useful state.
+When context gets high, baton nudges Claude to snapshot. At the hard threshold, it injects the baton protocol directly so Claude writes the baton before auto-compaction can discard useful state. When the 5-hour rate-limit is above 90%, baton escalates the hard nudge earlier so you snapshot before hitting the wall.
 
 ## Configuration
 

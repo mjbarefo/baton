@@ -211,6 +211,100 @@ describe("runUserPromptSubmitHook — session-age nudge", () => {
   });
 });
 
+describe("runUserPromptSubmitHook — rate-limit-elevated hard nudge", () => {
+  test("elevated rate-limit and elevated tokens: fires early hard nudge and mentions rate-limit", async () => {
+    // NUDGE_HARD_UNDER_RATE_PRESSURE is 0.45. For a 200k window, this is 90k tokens.
+    // We send 92k tokens and 95% rate limit.
+    const sessionId = "rate-limit-elevated-hard";
+    writeStateFile(sessionId, { level: "none", rateLimit5hPct: 95 });
+    const transcript = writeTranscript(92_000);
+
+    await runUserPromptSubmitHook(
+      JSON.stringify({ session_id: sessionId, transcript_path: transcript, cwd: tmp }),
+    );
+    const out = JSON.parse(stdoutCapture);
+    const msg = out.hookSpecificOutput.additionalContext;
+
+    expect(msg).toContain("CRITICAL");
+    expect(msg).toContain("5h rate-limit at 95%");
+    expect(msg).not.toContain("auto-compact imminent"); // Ensure we use the right copy
+  });
+
+  test("elevated rate-limit but tokens below elevated threshold: does not fire early nudge", async () => {
+    // 80k tokens is below 90k (0.45 * 200k).
+    const sessionId = "rate-limit-elevated-skip-low-tokens";
+    writeStateFile(sessionId, { level: "none", rateLimit5hPct: 95 });
+    const transcript = writeTranscript(80_000);
+
+    await runUserPromptSubmitHook(
+      JSON.stringify({ session_id: sessionId, transcript_path: transcript, cwd: tmp }),
+    );
+    expect(stdoutCapture).toBe("");
+  });
+
+  test("rate-limit right below threshold: does not elevate hard nudge", async () => {
+    // 89% is below RATE_LIMIT_ELEVATED_PCT (90%).
+    // 92k tokens is above the early threshold but below the standard hard threshold.
+    // This should not fire any nudge, since 92k is below the soft threshold (110k).
+    const sessionId = "rate-limit-elevated-below-threshold";
+    writeStateFile(sessionId, { level: "none", rateLimit5hPct: 89 });
+    const transcript = writeTranscript(92_000);
+
+    await runUserPromptSubmitHook(
+      JSON.stringify({ session_id: sessionId, transcript_path: transcript, cwd: tmp }),
+    );
+    expect(stdoutCapture).toBe("");
+  });
+
+  test("early hard overrides soft: rate limit elevated, tokens at soft threshold", async () => {
+    // 112k tokens is above NUDGE_SOFT (110k) and above elevated hard (90k).
+    // Because rate limit is 95%, it should jump straight to the elevated hard nudge.
+    const sessionId = "rate-limit-early-hard-overrides-soft";
+    writeStateFile(sessionId, { level: "none", rateLimit5hPct: 95 });
+    const transcript = writeTranscript(112_000);
+
+    await runUserPromptSubmitHook(
+      JSON.stringify({ session_id: sessionId, transcript_path: transcript, cwd: tmp }),
+    );
+    const out = JSON.parse(stdoutCapture);
+    const msg = out.hookSpecificOutput.additionalContext;
+
+    expect(msg).toContain("CRITICAL");
+    expect(msg).toContain("5h rate-limit at 95%");
+  });
+
+  test("standard hard nudge uses regular copy when rate limit is missing", async () => {
+    const sessionId = "rate-limit-standard-hard";
+    writeStateFile(sessionId, { level: "none" }); // no rate limit
+    const transcript = writeTranscript(122_000); // above regular hard (120k)
+
+    await runUserPromptSubmitHook(
+      JSON.stringify({ session_id: sessionId, transcript_path: transcript, cwd: tmp }),
+    );
+    const out = JSON.parse(stdoutCapture);
+    const msg = out.hookSpecificOutput.additionalContext;
+
+    expect(msg).toContain("CRITICAL");
+    expect(msg).toContain("auto-compact imminent");
+    expect(msg).not.toContain("5h rate-limit");
+  });
+
+  test("invalid rate-limit is treated as missing (no crash, uses normal logic)", async () => {
+    const sessionId = "rate-limit-invalid";
+    writeStateFile(sessionId, { level: "none", rateLimit5hPct: 150 });
+    const transcript = writeTranscript(112_000); // Soft threshold (110k)
+
+    await runUserPromptSubmitHook(
+      JSON.stringify({ session_id: sessionId, transcript_path: transcript, cwd: tmp }),
+    );
+    const out = JSON.parse(stdoutCapture);
+    const msg = out.hookSpecificOutput.additionalContext;
+
+    expect(msg).toContain("[baton] Context at ~112k/200k"); // standard soft nudge
+    expect(msg).not.toContain("CRITICAL");
+  });
+});
+
 describe("runUserPromptSubmitHook — max_tokens sourcing", () => {
   test("below threshold: no output emitted", async () => {
     const transcript = writeTranscript(50_000);

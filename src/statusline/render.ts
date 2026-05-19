@@ -103,18 +103,19 @@ function gitBranchInfo(cwd: string | undefined): { branch?: string; dirty?: bool
 }
 let cachedSnapshot: { path: string; mtimeMs: number; total: number } | null = null;
 
-// Cache the last state-file write so we skip I/O when maxTokens is stable.
-let lastPersistedMaxTokens: { sessionId: string; maxTokens: number } | null = null;
+// Cache the last state-file write so we skip I/O when values are stable.
+let lastPersistedState: { sessionId: string; maxTokens: number; rateLimit5hPct?: number } | null = null;
 
 /**
- * Persist the session's context window size to the shared state file so that
- * the UserPromptSubmit hook can read it without hardcoding 200k.
+ * Persist the session's context window size and rate limit to the shared state file
+ * so that the UserPromptSubmit hook can read it without hardcoding.
  * Uses read-merge-write to preserve other fields (e.g. nudge level).
  */
-function persistMaxTokensToState(sessionId: string, maxTokens: number): void {
+function persistStateSnapshot(sessionId: string, maxTokens: number, rateLimit5hPct?: number): void {
   if (
-    lastPersistedMaxTokens?.sessionId === sessionId &&
-    lastPersistedMaxTokens.maxTokens === maxTokens
+    lastPersistedState?.sessionId === sessionId &&
+    lastPersistedState.maxTokens === maxTokens &&
+    lastPersistedState.rateLimit5hPct === rateLimit5hPct
   ) {
     return;
   }
@@ -128,8 +129,12 @@ function persistMaxTokensToState(sessionId: string, maxTokens: number): void {
         existing = JSON.parse(readFileSync(statePath, "utf8")) as Record<string, unknown>;
       } catch { /* ignore — hook may be writing concurrently */ }
     }
-    writeFileSync(statePath, JSON.stringify({ ...existing, maxTokens }));
-    lastPersistedMaxTokens = { sessionId, maxTokens };
+    const updates: Record<string, unknown> = { maxTokens };
+    if (rateLimit5hPct !== undefined) {
+      updates.rateLimit5hPct = rateLimit5hPct;
+    }
+    writeFileSync(statePath, JSON.stringify({ ...existing, ...updates }));
+    lastPersistedState = { sessionId, maxTokens, rateLimit5hPct };
   } catch { /* never crash the statusline */ }
 }
 
@@ -158,10 +163,11 @@ export async function renderStatusline(raw: string): Promise<string> {
   const payloadMax = data.context_window?.context_window_size;
   const max = payloadMax || DEFAULT_MAX;
 
-  // Persist real context_window_size to the session state file so the
-  // UserPromptSubmit hook can read it instead of hardcoding 200k.
+  // Persist real context_window_size and 5h rate limit to the session state file
+  // so the UserPromptSubmit hook can read them.
   if (data.session_id && payloadMax) {
-    persistMaxTokensToState(data.session_id, payloadMax);
+    const pct = data.rate_limits?.five_hour?.used_percentage ?? undefined;
+    persistStateSnapshot(data.session_id, payloadMax, pct);
   }
 
   const usedPct = data.context_window?.used_percentage;

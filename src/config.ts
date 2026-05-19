@@ -18,6 +18,11 @@ export const THRESHOLDS = {
   NUDGE_HARD: 0.60,  // was 120k on 200k window
 } as const;
 
+/** Rate-limit threshold (0-100) above which we escalate the nudge earlier. */
+export const RATE_LIMIT_ELEVATED_PCT = 90;
+/** Token threshold used when rate-limit is elevated. Fires before NUDGE_HARD. */
+export const NUDGE_HARD_UNDER_RATE_PRESSURE = 0.45;
+
 /** Nudge toward /baton after a session has been open this long (5 hours). */
 export const SESSION_AGE_NUDGE_MS = 5 * 60 * 60 * 1000;
 /** Minimum token count for the age nudge to fire (skip trivial sessions). */

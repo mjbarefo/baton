@@ -2,7 +2,7 @@ import { expect, test, describe, beforeEach, afterEach } from "bun:test";
 import { renderBatonBadge } from "../src/statusline/widgets.ts";
 import { renderStatusline } from "../src/statusline/render.ts";
 import { join } from "node:path";
-import { mkdirSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { batonStateDir } from "../src/config.ts";
 
@@ -212,6 +212,7 @@ describe("renderStatusline width adaptation", () => {
     setColumns(44);
     const noCostPayload = JSON.stringify({
       model: { display_name: "Sonnet 4.5" },
+      worktree: { branch: "main", is_dirty: true },
       context_window: { context_window_size: 200000, used_percentage: 41 },
     });
     const line = await renderStatusline(noCostPayload);
@@ -252,5 +253,65 @@ describe("renderStatusline width adaptation", () => {
     const stripped = line.replace(ANSI_RE, "");
 
     expect(stripped.length).toBeLessThanOrEqual(59);
+  });
+});
+
+describe("renderStatusline state persistence", () => {
+  let tmpHome: string;
+  let originalHome: string | undefined;
+
+  beforeEach(() => {
+    tmpHome = mkdtempSync(join(tmpdir(), "baton-statusline-persist-"));
+    originalHome = process.env.HOME;
+    process.env.HOME = tmpHome;
+  });
+
+  afterEach(() => {
+    if (originalHome === undefined) delete process.env.HOME;
+    else process.env.HOME = originalHome;
+    rmSync(tmpHome, { recursive: true, force: true });
+  });
+
+  test("persists maxTokens and rateLimit5hPct to state file", async () => {
+    const sessionId = "persist-test-session";
+    const payload = JSON.stringify({
+      session_id: sessionId,
+      context_window: { context_window_size: 150000, used_percentage: 10 },
+      rate_limits: { five_hour: { used_percentage: 95 } },
+    });
+
+    await renderStatusline(payload);
+
+    const statePath = join(batonStateDir(), `${sessionId}.json`);
+    expect(existsSync(statePath)).toBe(true);
+
+    const state = JSON.parse(readFileSync(statePath, "utf8"));
+    expect(state.maxTokens).toBe(150000);
+    expect(state.rateLimit5hPct).toBe(95);
+  });
+
+  test("does not overwrite rateLimit5hPct with undefined on partial payloads", async () => {
+    const sessionId = "persist-partial-session";
+
+    // First render has both
+    const initialPayload = JSON.stringify({
+      session_id: sessionId,
+      context_window: { context_window_size: 150000 },
+      rate_limits: { five_hour: { used_percentage: 95 } },
+    });
+    await renderStatusline(initialPayload);
+
+    // Second render is missing rate limit
+    const partialPayload = JSON.stringify({
+      session_id: sessionId,
+      context_window: { context_window_size: 150000 },
+    });
+    await renderStatusline(partialPayload);
+
+    const statePath = join(batonStateDir(), `${sessionId}.json`);
+    const state = JSON.parse(readFileSync(statePath, "utf8"));
+
+    expect(state.maxTokens).toBe(150000);
+    expect(state.rateLimit5hPct).toBe(95); // Should still be 95
   });
 });

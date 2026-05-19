@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { normalizeLevel, normalizeMaxTokens } from "../src/baton/state.ts";
+import { normalizeLevel, normalizeMaxTokens, normalizeRateLimit5hPct } from "../src/baton/state.ts";
 
 describe("state normalizers", () => {
   describe("normalizeLevel", () => {
@@ -33,6 +33,25 @@ describe("state normalizers", () => {
       expect(normalizeMaxTokens("200000")).toBeUndefined();
       expect(normalizeMaxTokens(undefined)).toBeUndefined();
       expect(normalizeMaxTokens(null)).toBeUndefined();
+    });
+  });
+
+  describe("normalizeRateLimit5hPct", () => {
+    test("preserves valid percentages", () => {
+      expect(normalizeRateLimit5hPct(0)).toBe(0);
+      expect(normalizeRateLimit5hPct(50)).toBe(50);
+      expect(normalizeRateLimit5hPct(100)).toBe(100);
+      expect(normalizeRateLimit5hPct(99.9)).toBe(99.9);
+    });
+
+    test("returns undefined for invalid, out of bounds or missing values", () => {
+      expect(normalizeRateLimit5hPct(-1)).toBeUndefined();
+      expect(normalizeRateLimit5hPct(101)).toBeUndefined();
+      expect(normalizeRateLimit5hPct(NaN)).toBeUndefined();
+      expect(normalizeRateLimit5hPct(Infinity)).toBeUndefined();
+      expect(normalizeRateLimit5hPct("50")).toBeUndefined();
+      expect(normalizeRateLimit5hPct(undefined)).toBeUndefined();
+      expect(normalizeRateLimit5hPct(null)).toBeUndefined();
     });
   });
 });
