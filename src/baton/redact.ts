@@ -66,16 +66,20 @@ function parseIgnoreFile(path: string): RedactPattern[] {
 }
 
 export function loadUserPatterns(userHome: string): RedactPattern[] {
-  const path = join(userHome, ".claude", "baton-ignore");
-  return parseIgnoreFile(path);
+  return [
+    ...parseIgnoreFile(join(userHome, ".claude", "baton-ignore")),
+    ...parseIgnoreFile(join(userHome, ".batonredact")),
+  ];
 }
 
 export function loadProjectPatterns(cwd: string): RedactPattern[] {
-  const path = join(cwd, ".batonignore");
-  return parseIgnoreFile(path);
+  return [
+    ...parseIgnoreFile(join(cwd, ".batonignore")),
+    ...parseIgnoreFile(join(cwd, ".batonredact")),
+  ];
 }
 
-export function redact(body: string, patterns: RedactPattern[]): { body: string; hits: Array<{ label: string; count: number }> } {
+export function redactSecrets(body: string, patterns: RedactPattern[]): { body: string; hits: Array<{ label: string; count: number }> } {
   if (process.env.BATON_NO_REDACT === "1") {
     if (!warnedNoRedact) {
       process.stderr.write("baton: notice: redaction disabled via BATON_NO_REDACT=1\n");
@@ -111,3 +115,5 @@ export function redact(body: string, patterns: RedactPattern[]): { body: string;
   const hits = Array.from(hitCounts.entries()).map(([label, count]) => ({ label, count }));
   return { body: redactedBody, hits };
 }
+
+export const redact = redactSecrets;

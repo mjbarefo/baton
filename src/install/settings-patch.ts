@@ -6,6 +6,7 @@ import {
   VERSION,
   buildCommand,
   installManifestPath,
+  userBatonAgentCommandPath,
   userBatonCodexCommandPath,
   userBatonCommandPath,
   userBatonGeminiCommandPath,
@@ -85,11 +86,13 @@ export interface InstallReport {
   wroteDropCommand: boolean;
   wroteBatonCodexCommand: boolean;
   wroteBatonGeminiCommand: boolean;
+  wroteBatonAgentCommand: boolean;
   settingsPath: string;
   batonCommandPath: string;
   dropCommandPath: string;
   batonCodexCommandPath: string;
   batonGeminiCommandPath: string;
+  batonAgentCommandPath: string;
   migratedCommands: string[];
   migratedSkills: string[];
   templateSource: "bundled" | "override" | "extended";
@@ -331,6 +334,103 @@ function writeBatonGeminiCommand(commandsDir: string, cmdPath: string): boolean 
   return writeFileIfChanged(cmdPath, batonGeminiCommandBody());
 }
 
+function batonAgentCommandBody(): string {
+  const redactCommand = buildCommand("redact");
+  return [
+    "---",
+    "name: baton-agent",
+    "description: Launch a worktree-isolated subagent with a task-filtered, redacted BATON.md context. Invoke when the user runs /baton-agent followed by a concrete task for an isolated implementation agent.",
+    "disable-model-invocation: false",
+    "---",
+    "",
+    "# /baton-agent — Worktree-isolated subagent",
+    "",
+    "This command delegates a focused task to an Agent running in an isolated worktree. Follow these steps exactly.",
+    "",
+    "1. **Freshness check.** Locate the nearest `.claude/baton/BATON.md` by walking up from the current working directory. If it does not exist, tell the user:",
+    "",
+    "   > BATON.md not found — please run /baton first to create a snapshot, then re-run /baton-agent.",
+    "",
+    "   Stop. Do not proceed without a BATON.md.",
+    "",
+    "2. **Redact.** Run this exact command using the Bash tool and capture stdout as the redacted baton body:",
+    "",
+    "```bash",
+    redactCommand,
+    "```",
+    "",
+    "   Treat stderr as status output; it should report `Redacted N secret(s)`.",
+    "",
+    "3. **Parse task.** The task is everything after `/baton-agent` in the invocation.",
+    "",
+    "   Example: `/baton-agent refactor the statusline widgets to use a shared formatter`",
+    "",
+    "   Task: `refactor the statusline widgets to use a shared formatter`",
+    "",
+    "   If the user passed `--branch <name>`, keep that as the display slug and remove the flag plus value from the task text.",
+    "",
+    "4. **Synthesize filtered baton.** Using the `agent-template.md` structure below, inline-synthesize a focused slice of the redacted baton relevant to the task.",
+    "",
+    "   Keep:",
+    "   - Goal",
+    "   - Decisions and constraints that apply to this task",
+    "   - Relevant file paths",
+    "",
+    "   Drop:",
+    "   - Unrelated work threads",
+    "   - Completed items that do not affect this task",
+    "   - Context irrelevant to the task",
+    "",
+    "   ```markdown",
+    "   ## Task",
+    "   {{task}}",
+    "",
+    "   ## Relevant Context",
+    "   {{filtered_goal_and_decisions}}",
+    "",
+    "   ## Files In Scope",
+    "   {{relevant_file_paths}}",
+    "",
+    "   ## What to Ignore",
+    "   {{unrelated_threads}}",
+    "   ```",
+    "",
+    "5. **Confirm scope.** Show the filtered baton to the user in a fenced `markdown` code block and ask:",
+    "",
+    "   > Does this scope look right? Reply yes to launch, or describe what to adjust.",
+    "",
+    "   Do not proceed until the user confirms.",
+    "",
+    "6. **Derive display slug.** If the user passed `--branch <name>`, use that exact name as the display slug. Otherwise, take the first 4-5 significant words of the task, lowercase them, hyphenate them, and prefix with `baton-agent/`. This slug is for use in the post-launch summary only.",
+    "",
+    "   Example: `refactor the statusline widgets to use a shared formatter` becomes `baton-agent/refactor-statusline-widgets`.",
+    "",
+    "7. **Spawn subagent.** Call the Agent tool with `isolation: \"worktree\"` only. Do not attempt to specify a branch name — the runtime assigns it automatically and returns it in the result. The subagent prompt must include this structure:",
+    "",
+    "   ```markdown",
+    "   ## Context",
+    "   <filtered baton>",
+    "",
+    "   ## Your Task",
+    "   <task>",
+    "",
+    "   Make all changes on the current worktree branch. Do not push.",
+    "   ```",
+    "",
+    "8. **Surface result.** When the Agent tool returns, read the branch name from its result. Display it prominently:",
+    "",
+    "   > Changes are on branch `<branch-from-result>` — review with `git diff <default-branch>...<branch-from-result>`",
+    "",
+    "   Then present the result naturally.",
+    "",
+  ].join("\n");
+}
+
+function writeBatonAgentCommand(commandsDir: string, cmdPath: string): boolean {
+  mkdirSync(commandsDir, { recursive: true });
+  return writeFileIfChanged(cmdPath, batonAgentCommandBody());
+}
+
 function startsWithFrontmatter(path: string, expectedName: string): boolean {
   try {
     const buf = readFileSync(path, "utf8").slice(0, 80).replace(/\r\n/g, "\n");
@@ -495,6 +595,7 @@ export function uninstall(): UninstallReport {
   removeIfBatonOwned(userDropCommandPath(), "drop", removedFiles, skippedFiles);
   removeIfBatonOwned(userBatonCodexCommandPath(), "baton-codex", removedFiles, skippedFiles);
   removeIfBatonOwned(userBatonGeminiCommandPath(), "baton-gemini", removedFiles, skippedFiles);
+  removeIfBatonOwned(userBatonAgentCommandPath(), "baton-agent", removedFiles, skippedFiles);
 
   // Skill directory: gated two ways. SKILL.md must still be baton-owned, AND
   // the directory must contain nothing unexpected. If either check fails we
@@ -579,6 +680,7 @@ export function install(opts: InstallOptions = {}): InstallReport {
   const dropCmdPath = userDropCommandPath();
   const batonCodexCmdPath = userBatonCodexCommandPath();
   const batonGeminiCmdPath = userBatonGeminiCommandPath();
+  const batonAgentCmdPath = userBatonAgentCommandPath();
   const skillsDir = userSkillsDir();
 
   mkdirSync(claudeDir, { recursive: true });
@@ -606,6 +708,7 @@ export function install(opts: InstallOptions = {}): InstallReport {
   const wroteDropCommand = writeDropCommand(commandsDir, dropCmdPath);
   const wroteBatonCodexCommand = writeBatonCodexCommand(commandsDir, batonCodexCmdPath);
   const wroteBatonGeminiCommand = writeBatonGeminiCommand(commandsDir, batonGeminiCmdPath);
+  const wroteBatonAgentCommand = writeBatonAgentCommand(commandsDir, batonAgentCmdPath);
 
   writeInstallManifest(hadBatonEntriesBeforeInstall ? null : backupPath);
 
@@ -622,11 +725,13 @@ export function install(opts: InstallOptions = {}): InstallReport {
     wroteDropCommand,
     wroteBatonCodexCommand,
     wroteBatonGeminiCommand,
+    wroteBatonAgentCommand,
     settingsPath,
     batonCommandPath: batonCmdPath,
     dropCommandPath: dropCmdPath,
     batonCodexCommandPath: batonCodexCmdPath,
     batonGeminiCommandPath: batonGeminiCmdPath,
+    batonAgentCommandPath: batonAgentCmdPath,
     migratedCommands,
     migratedSkills,
     templateSource: templateResult.source,
@@ -642,7 +747,7 @@ export function printReport(r: InstallReport): void {
   if (r.postinstall) {
     const anyNew = r.wroteStatusline || r.wroteUserPromptSubmit || r.wrotePreCompact ||
       r.wroteSessionStart || r.wroteBatonCommand || r.wroteDropCommand ||
-      r.wroteBatonCodexCommand || r.wroteBatonGeminiCommand;
+      r.wroteBatonCodexCommand || r.wroteBatonGeminiCommand || r.wroteBatonAgentCommand;
     if (!anyNew) return;
     process.stdout.write(
       color.green("✓") + ` baton v${VERSION} installed — restart Claude Code to activate.\n`,
@@ -669,6 +774,7 @@ export function printReport(r: InstallReport): void {
   lines.push(`  ${tick(r.wroteDropCommand)}  /drop command`);
   lines.push(`  ${tick(r.wroteBatonCodexCommand)}  /baton-codex command`);
   lines.push(`  ${tick(r.wroteBatonGeminiCommand)}  /baton-gemini command`);
+  lines.push(`  ${tick(r.wroteBatonAgentCommand)}  /baton-agent command`);
 
   if (r.migratedCommands.length > 0 || r.migratedSkills.length > 0) {
     lines.push("");
@@ -697,6 +803,7 @@ export interface CheckReport {
   dropCommand: boolean;
   batonCodexCommand: boolean;
   batonGeminiCommand: boolean;
+  batonAgentCommand: boolean;
   installedAt: string | null;
   backupPath: string | null;
   allPresent: boolean;
@@ -725,6 +832,7 @@ export function check(): CheckReport {
   const dropCmd = existsSync(userDropCommandPath());
   const batonCodexCmd = existsSync(userBatonCodexCommandPath());
   const batonGeminiCmd = existsSync(userBatonGeminiCommandPath());
+  const batonAgentCmd = existsSync(userBatonAgentCommandPath());
 
   let installedAt: string | null = null;
   let backupPath: string | null = null;
@@ -738,7 +846,7 @@ export function check(): CheckReport {
   }
 
   const allPresent = statusPresent && statusCurrent && ups && pc && ss &&
-    batonCmd && dropCmd && batonCodexCmd && batonGeminiCmd;
+    batonCmd && dropCmd && batonCodexCmd && batonGeminiCmd && batonAgentCmd;
 
   return {
     version: VERSION,
@@ -750,6 +858,7 @@ export function check(): CheckReport {
     dropCommand: dropCmd,
     batonCodexCommand: batonCodexCmd,
     batonGeminiCommand: batonGeminiCmd,
+    batonAgentCommand: batonAgentCmd,
     installedAt,
     backupPath,
     allPresent,
@@ -776,6 +885,7 @@ export function printCheckReport(r: CheckReport): void {
   lines.push(row("/drop command", r.dropCommand));
   lines.push(row("/baton-codex command", r.batonCodexCommand));
   lines.push(row("/baton-gemini command", r.batonGeminiCommand));
+  lines.push(row("/baton-agent command", r.batonAgentCommand));
   if (r.installedAt) {
     lines.push("");
     lines.push(`  ${color.dim("installed")} ${color.dim(r.installedAt.slice(0, 10))}`);

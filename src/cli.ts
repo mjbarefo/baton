@@ -8,6 +8,7 @@ import { VERSION } from "./config.ts";
 import { catchBaton } from "./baton/catch.ts";
 import { drop } from "./baton/drop.ts";
 import { runReconstruct } from "./baton/reconstruct.ts";
+import { runRedactCommand } from "./baton/redact-cmd.ts";
 import { runSidecar, type SidecarHost } from "./sidecar/run.ts";
 import { isSidecarMode, type SidecarMode } from "./sidecar/prompts.ts";
 import {
@@ -43,6 +44,7 @@ function usage(): void {
       "  check                       show current install status (read-only)",
       "  catch [--dry-run]           resume from the nearest BATON.md",
       "  drop                        archive the nearest BATON.md so /clear starts fresh",
+      "  redact                      print the nearest BATON.md with secrets redacted",
       "  reconstruct <transcript-path> [--out <path>]   rebuild a baton from a transcript JSONL",
       "  list [--json]               list archived batons",
       "  show <id|prefix>            show an archived baton",
@@ -127,6 +129,9 @@ async function main(): Promise<number> {
     }
     case "drop": {
       return drop({ cwd: process.cwd() });
+    }
+    case "redact": {
+      return runRedactCommand({ cwd: process.cwd() });
     }
     case "reconstruct": {
       const args2 = args.slice(1);

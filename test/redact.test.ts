@@ -98,10 +98,11 @@ describe("redact", () => {
     expect(res.hits).toEqual([]);
   });
 
-  test("respects BATON_NO_REDACT escape hatch", () => {
+  test("respects BATON_NO_REDACT escape hatch", async () => {
     process.env.BATON_NO_REDACT = "1";
+    const freshModule = await import(`../src/baton/redact.ts?escape=${crypto.randomUUID()}`);
     const text = "Here is my key: sk-ant-api03-abcdefghijklmnopqrstuvwxyz1234567890-abcdefg";
-    const res = redact(text, DEFAULT_PATTERNS);
+    const res = freshModule.redact(text, freshModule.DEFAULT_PATTERNS);
     expect(res.body).toBe(text);
     expect(res.hits).toEqual([]);
     expect(stderrOutput).toContain("redaction disabled");
@@ -137,6 +138,14 @@ describe("loadUserPatterns & loadProjectPatterns", () => {
     expect(patterns[0]?.regex?.source).toBe("my-custom-token-[a-z0-9]+");
     expect(patterns[1]?.label).toBe("user pattern");
     expect(patterns[1]?.regex?.source).toBe("\\bfoo_bar\\b");
+  });
+
+  test("loadUserPatterns loads .batonredact from home directory", () => {
+    writeFileSync(join(tmpDir, ".batonredact"), "home token:::HOME_SECRET_[A-Z0-9]+\n");
+    const patterns = loadUserPatterns(tmpDir);
+    expect(patterns).toHaveLength(1);
+    expect(patterns[0]?.label).toBe("home token");
+    expect(patterns[0]?.regex?.source).toBe("HOME_SECRET_[A-Z0-9]+");
   });
 
   test("loads project patterns correctly", () => {
@@ -176,5 +185,13 @@ describe("loadUserPatterns & loadProjectPatterns", () => {
     expect(patterns.length).toBe(1);
     expect(patterns[0]?.label).toBe("credential");
     expect(patterns[0]?.regex?.source).toBe("(token|secret)[a-z]+");
+  });
+
+  test("loads .batonredact overrides", () => {
+    writeFileSync(join(tmpDir, ".batonredact"), "override:::custom_secret_[a-z]+\n");
+    const patterns = loadProjectPatterns(tmpDir);
+    expect(patterns.length).toBe(1);
+    expect(patterns[0]?.label).toBe("override");
+    expect(patterns[0]?.regex?.source).toBe("custom_secret_[a-z]+");
   });
 });
