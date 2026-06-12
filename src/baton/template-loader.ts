@@ -39,25 +39,25 @@ export function readTemplateBodyWithOverride(): TemplateResult {
   try {
     overrideContent = readFileSync(overridePath, "utf8");
   } catch {
-    console.warn(`baton: ${overridePath} exists but could not be read — using bundled template.`);
+    process.stderr.write(`baton: ${overridePath} exists but could not be read — using bundled template.\n`);
     return { body: bundledTemplate, source: "bundled" };
   }
 
   // Minimal validation: must start with --- and have name: baton
   if (!overrideContent.startsWith("---")) {
-    console.warn(`baton: ${overridePath} exists but frontmatter check failed — using bundled template.`);
+    process.stderr.write(`baton: ${overridePath} exists but frontmatter check failed — using bundled template.\n`);
     return { body: bundledTemplate, source: "bundled" };
   }
 
   const endFrontmatter = overrideContent.indexOf("\n---", 3);
   if (endFrontmatter === -1) {
-    console.warn(`baton: ${overridePath} exists but frontmatter check failed — using bundled template.`);
+    process.stderr.write(`baton: ${overridePath} exists but frontmatter check failed — using bundled template.\n`);
     return { body: bundledTemplate, source: "bundled" };
   }
 
   const frontmatter = overrideContent.slice(3, endFrontmatter);
   if (!frontmatter.includes("name: baton")) {
-    console.warn(`baton: ${overridePath} exists but frontmatter check failed — using bundled template.`);
+    process.stderr.write(`baton: ${overridePath} exists but frontmatter check failed — using bundled template.\n`);
     return { body: bundledTemplate, source: "bundled" };
   }
 

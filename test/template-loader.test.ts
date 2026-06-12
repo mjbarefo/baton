@@ -64,13 +64,14 @@ describe("template-loader", () => {
     const content = `---\ndescription: Custom\n---\n# Custom Header\nSome content`;
     writeFileSync(overridePath, content, "utf8");
 
-    const originalWarn = console.warn;
+    const originalWrite = process.stderr.write;
     let warningEmitted = false;
     let warningMessage = "";
-    console.warn = (msg: string) => {
+    process.stderr.write = ((msg: string) => {
       warningEmitted = true;
       warningMessage = msg;
-    };
+      return true;
+    }) as typeof process.stderr.write;
 
     try {
       const result = readTemplateBodyWithOverride();
@@ -78,7 +79,7 @@ describe("template-loader", () => {
       expect(warningEmitted).toBe(true);
       expect(warningMessage).toContain("frontmatter check failed");
     } finally {
-      console.warn = originalWarn;
+      process.stderr.write = originalWrite;
     }
   });
 
@@ -87,16 +88,16 @@ describe("template-loader", () => {
     const content = `# Custom Header\nSome content`;
     writeFileSync(overridePath, content, "utf8");
 
-    const originalWarn = console.warn;
+    const originalWrite = process.stderr.write;
     let warningEmitted = false;
-    console.warn = () => { warningEmitted = true; };
+    process.stderr.write = (() => { warningEmitted = true; return true; }) as typeof process.stderr.write;
 
     try {
       const result = readTemplateBodyWithOverride();
       expect(result.source).toBe("bundled");
       expect(warningEmitted).toBe(true);
     } finally {
-      console.warn = originalWarn;
+      process.stderr.write = originalWrite;
     }
   });
 
