@@ -261,7 +261,7 @@ describe("runSidecar", () => {
     });
   });
 
-  test("redacts secrets in gemini argv", async () => {
+  test("redacts secrets in the gemini stdin prompt and keeps argv free of baton content", async () => {
     const SECRET = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz1234567890-abcdefg";
     writeBaton(tmp, `# Baton\n\nMy key is ${SECRET}\n`);
 
@@ -270,12 +270,12 @@ describe("runSidecar", () => {
     expect(code).toBe(0);
     expect(stderrCapture).toContain("redacted 1 secret");
     expect(stdoutCapture).not.toContain(SECRET);
+    // Dry-run prints the composed prompt (which travels on stdin) to stderr.
     expect(stderrCapture).not.toContain(SECRET);
-    expect(stdoutCapture).toContain("[redacted Anthropic API key]");
-    const argv = JSON.parse(stdoutCapture.trim());
-    const prompt = argv[argv.indexOf("--prompt") + 1] as string;
-    expect(prompt).toContain("[redacted Anthropic API key]");
-    expect(prompt).not.toContain(SECRET);
+    expect(stderrCapture).toContain("[redacted Anthropic API key]");
+    // The baton body must not appear in argv at all.
+    const argv = JSON.parse(stdoutCapture.trim()) as string[];
+    expect(argv.join(" ")).not.toContain("My key is");
   });
 
   test("missing codex binary on PATH exits 2 with install hint", async () => {
