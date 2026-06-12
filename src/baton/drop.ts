@@ -1,13 +1,13 @@
 import { BATON_REL_PATH } from "../config.ts";
 import { archiveBaton, PartialArchiveError } from "./archive.ts";
-import { findBaton } from "./find.ts";
+import { freshestExistingBatonWalkingUp } from "./freshness.ts";
 
 export interface DropOptions {
   cwd: string;
 }
 
 export function drop(opts: DropOptions): number {
-  const baton = findBaton(opts.cwd);
+  const baton = freshestExistingBatonWalkingUp(opts.cwd)?.path ?? null;
   if (!baton) {
     process.stdout.write(
       `baton drop: no ${BATON_REL_PATH} found walking up from ${opts.cwd}. Nothing to drop.\n`,
@@ -22,7 +22,7 @@ export function drop(opts: DropOptions): number {
     if (err instanceof PartialArchiveError) {
       process.stdout.write(`baton drop: archived ${baton} → ${err.archivePath}\n`);
       process.stderr.write(
-        `baton drop: source file could not be removed — it may re-inject on next /clear. Run /drop again.\n`,
+        `baton drop: source file could not be removed — it may re-inject on next resume. Run baton drop again.\n`,
       );
       return 1;
     }

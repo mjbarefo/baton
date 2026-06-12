@@ -1,7 +1,7 @@
 {
   "name": "ccbaton",
   "version": "0.3.7",
-  "description": "Claude Code plugin: context statusline, session snapshots via BATON.md, PreCompact safety net, and AI sidecar reviews with Codex/Gemini.",
+  "description": "Local-first session baton for Claude Code, Codex CLI, and Gemini CLI.",
   "repository": {
     "type": "git",
     "url": "https://github.com/mjbarefo/baton"
@@ -31,9 +31,11 @@
   ],
   "keywords": [
     "claude-code",
+    "codex-cli",
+    "gemini-cli",
     "statusline",
     "baton",
     "context",
-    "anthropic"
+    "handoff"
   ]
 }

@@ -29,15 +29,16 @@ afterEach(() => {
 });
 
 describe("runPreCompactHook", () => {
-  test("manual trigger is a no-op", async () => {
+  test("manual trigger blocks (explicit, not silent allow)", async () => {
     const code = await runPreCompactHook(JSON.stringify({ trigger: "manual", cwd: tmp }));
     expect(code).toBe(0);
-    expect(stdoutCapture).toBe("");
+    const parsed = JSON.parse(stdoutCapture);
+    expect(parsed.decision).toBe("block");
   });
 
   test("fresh baton blocks compaction without rewriting", async () => {
-    const baton = join(tmp, ".claude", "baton", "BATON.md");
-    mkdirSync(join(tmp, ".claude", "baton"), { recursive: true });
+    const baton = join(tmp, ".baton", "BATON.md");
+    mkdirSync(join(tmp, ".baton"), { recursive: true });
     writeFileSync(baton, "# existing baton");
     const code = await runPreCompactHook(
       JSON.stringify({ trigger: "auto", cwd: tmp, transcript_path: "" }),
@@ -50,7 +51,7 @@ describe("runPreCompactHook", () => {
   });
 
   test("stale baton is not treated as fresh and fallback is written", async () => {
-    const batonDir = join(tmp, ".claude", "baton");
+    const batonDir = join(tmp, ".baton");
     mkdirSync(batonDir, { recursive: true });
     const baton = join(batonDir, "BATON.md");
     writeFileSync(baton, "# stale");
@@ -77,7 +78,7 @@ describe("runPreCompactHook", () => {
   test("fallback write failure still emits block decision with error reason", async () => {
     // Force writeFallbackBaton to fail by placing a file where it expects a directory.
     mkdirSync(join(tmp, ".claude"), { recursive: true });
-    writeFileSync(join(tmp, ".claude", "baton"), "i am a file, not a directory");
+    writeFileSync(join(tmp, ".baton"), "i am a file, not a directory");
 
     const transcript = writeTranscriptFixture(tmp, "transcript.jsonl", {
       inputTokens: 120_000,
@@ -102,6 +103,6 @@ describe("runPreCompactHook", () => {
     expect(code).toBe(0);
     const parsed = JSON.parse(stdoutCapture);
     expect(parsed.decision).toBe("block");
-    expect(existsSync(join(tmp, ".claude", "baton", "BATON.md"))).toBe(true);
+    expect(existsSync(join(tmp, ".baton", "BATON.md"))).toBe(true);
   });
 });

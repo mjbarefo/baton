@@ -5,6 +5,11 @@ export interface TranscriptUsage {
   output_tokens?: number;
   cache_creation_input_tokens?: number;
   cache_read_input_tokens?: number;
+  cached_input_tokens?: number;
+  total_tokens?: number;
+  prompt_tokens?: number;
+  candidates_token_count?: number;
+  prompt_token_count?: number;
 }
 
 export interface TranscriptEntry {
@@ -14,10 +19,13 @@ export interface TranscriptEntry {
   timestamp?: string;
   cwd?: string;
   sessionId?: string;
+  usage?: TranscriptUsage;
+  tokens?: TranscriptUsage;
   message?: {
     role?: string;
     content?: unknown;
     usage?: TranscriptUsage;
+    tokens?: TranscriptUsage;
     stop_reason?: string | null;
   };
   toolUseResult?: unknown;
@@ -78,9 +86,9 @@ function parseAssistantUsageLine(line: string | undefined): TranscriptEntry | nu
   try {
     const entry = JSON.parse(trimmed) as TranscriptEntry;
     if (!isMainChain(entry)) return null;
-    if (entry.message?.role !== "assistant") return null;
-    if (!entry.message.usage) return null;
-    return entry;
+    if (entry.message?.role === "assistant" && (entry.message.usage || entry.message.tokens)) return entry;
+    if (entry.usage || entry.tokens) return entry;
+    return null;
   } catch {
     return null;
   }

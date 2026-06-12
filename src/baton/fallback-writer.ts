@@ -75,12 +75,12 @@ export function writeFallbackBaton(
 
   const body = `# Baton — fallback
 
-> ⚠ **This is a fallback baton written deterministically by baton because auto-compaction was about to fire and no recent \`/baton\` existed.** It is less structured than a Claude-authored baton. A fresh session should read this, then read the actual transcript at \`${transcriptPath}\` if more context is needed.
+> ⚠ **This is a fallback baton written deterministically by baton because auto-compaction was about to fire and no recent \`/baton\` existed.** It is less structured than an agent-authored baton. A fresh session should read this, then read the actual transcript at \`${transcriptPath}\` if more context is needed.
 
 _Written by baton PreCompact hook at ${iso}. Context at ~${kTokens}k tokens._
 
 ## Current Goal
-_unknown — Claude did not author this baton. Ask the user to restate the goal._
+_unknown — the active agent did not author this baton. Ask the user to restate the goal._
 
 ## Completed This Session
 _not available in fallback — inspect \`Recent Turns\` below._

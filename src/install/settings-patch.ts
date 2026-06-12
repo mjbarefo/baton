@@ -1,11 +1,16 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync, readdirSync, rmSync, renameSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync, readdirSync, rmSync, renameSync, unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 import {
+  BATON_HOOK_TIMEOUT_S,
   SUBCOMMANDS,
   VERSION,
   buildCommand,
+  hostInstallManifestPath,
   installManifestPath,
+  legacyInstallManifestPath,
+  userAgentsBatonSkillDir,
+  userAgentsBatonSkillPath,
   userBatonCodexCommandPath,
   userBatonCommandPath,
   userBatonGeminiCommandPath,
@@ -13,7 +18,10 @@ import {
   userBatonSkillPath,
   userClaudeDir,
   userCommandsDir,
+  userCodexConfigPath,
   userDropCommandPath,
+  userGeminiBatonExtensionDir,
+  userGeminiSettingsPath,
   userSettingsPath,
   userSkillsDir,
 } from "../config.ts";
@@ -249,13 +257,13 @@ function batonCodexCommandBody(): string {
   return [
     "---",
     "name: baton-codex",
-    "description: Run Codex CLI as a same-session sidecar using the current BATON.md for context. Invoke when the user runs /baton-codex and wants Codex to review, critique, or propose an alternative without starting a fresh Claude Code session.",
+    "description: Run Codex CLI as a same-session sidecar using the current BATON.md for context. Invoke when the user runs /baton-codex and wants Codex to review, critique, or propose an alternative without starting a fresh session.",
     "disable-model-invocation: false",
     "---",
     "",
     "# /baton-codex — Codex sidecar",
     "",
-    "This command continues in the current Claude Code session. It is not a handoff command, and it must not run /clear.",
+    "This command continues in the current session. It is not a handoff command, and it must not run /clear.",
     "",
     "1. **Mode shortcut.** If the user's message already names a mode (`review`, `critique`, or `alternative`), use it as `<MODE>` and skip step 2.",
     "",
@@ -292,13 +300,13 @@ function batonGeminiCommandBody(): string {
   return [
     "---",
     "name: baton-gemini",
-    "description: Run Gemini CLI as a same-session sidecar using the current BATON.md for context. Invoke when the user runs /baton-gemini and wants Gemini to review, critique, or propose an alternative without starting a fresh Claude Code session.",
+    "description: Run Gemini CLI as a same-session sidecar using the current BATON.md for context. Invoke when the user runs /baton-gemini and wants Gemini to review, critique, or propose an alternative without starting a fresh session.",
     "disable-model-invocation: false",
     "---",
     "",
     "# /baton-gemini — Gemini sidecar",
     "",
-    "This command continues in the current Claude Code session. It is not a handoff command, and it must not run /clear.",
+    "This command continues in the current session. It is not a handoff command, and it must not run /clear.",
     "",
     "1. **Mode shortcut.** If the user's message already names a mode (`review`, `critique`, or `alternative`), use it as `<MODE>` and skip step 2.",
     "",
@@ -411,6 +419,12 @@ interface InstallManifest {
 function writeInstallManifest(backupPath: string | null): boolean {
   const manifestPath = installManifestPath();
   if (existsSync(manifestPath)) return false;
+  const legacyManifest = legacyInstallManifestPath();
+  if (existsSync(legacyManifest)) {
+    mkdirSync(dirname(manifestPath), { recursive: true });
+    copyFileSync(legacyManifest, manifestPath);
+    return false;
+  }
   mkdirSync(dirname(manifestPath), { recursive: true });
   const manifest: InstallManifest = {
     installedAt: new Date().toISOString(),
@@ -453,10 +467,12 @@ function removeIfBatonOwned(
 
 export function uninstall(): UninstallReport {
   const manifestPath = installManifestPath();
+  const legacyManifestPath = legacyInstallManifestPath();
   let manifest: InstallManifest | null = null;
-  if (existsSync(manifestPath)) {
+  const readableManifestPath = existsSync(manifestPath) ? manifestPath : legacyManifestPath;
+  if (existsSync(readableManifestPath)) {
     try {
-      manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as InstallManifest;
+      manifest = JSON.parse(readFileSync(readableManifestPath, "utf8")) as InstallManifest;
     } catch { /* ignore — fall through to surgical */ }
   }
 
@@ -537,6 +553,7 @@ export function uninstall(): UninstallReport {
   }
 
   if (existsSync(manifestPath)) rmSync(manifestPath);
+  if (existsSync(legacyManifestPath)) rmSync(legacyManifestPath);
 
   return { restoredSettingsFrom, fallbackSurgical, removedFiles, skippedFiles };
 }
@@ -728,7 +745,7 @@ export function check(): CheckReport {
 
   let installedAt: string | null = null;
   let backupPath: string | null = null;
-  const manifestPath = installManifestPath();
+  const manifestPath = existsSync(installManifestPath()) ? installManifestPath() : legacyInstallManifestPath();
   if (existsSync(manifestPath)) {
     try {
       const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as InstallManifest;
@@ -781,4 +798,486 @@ export function printCheckReport(r: CheckReport): void {
     lines.push(`  ${color.dim("installed")} ${color.dim(r.installedAt.slice(0, 10))}`);
   }
   process.stdout.write(lines.join("\n") + "\n");
+}
+
+// --- multi-host install/check/uninstall ---
+
+export type HostName = "claude" | "codex" | "gemini";
+export type HostSelection = HostName | "all";
+
+export interface HostInstallSummary {
+  host: HostName;
+  dryRun: boolean;
+  changed: boolean;
+  details: string[];
+}
+
+export interface MultiHostInstallReport {
+  hosts: HostInstallSummary[];
+  claude?: InstallReport;
+}
+
+export interface HostCheckSummary {
+  host: HostName;
+  allPresent: boolean;
+  details: Record<string, boolean | string | null>;
+}
+
+export interface MultiHostCheckReport {
+  version: string;
+  hosts: HostCheckSummary[];
+  allPresent: boolean;
+}
+
+export interface HostUninstallSummary {
+  host: HostName;
+  changed: boolean;
+  details: string[];
+}
+
+export interface MultiHostUninstallReport {
+  hosts: HostUninstallSummary[];
+  claude?: UninstallReport;
+}
+
+const MANAGED_START = "# >>> baton managed";
+const MANAGED_END = "# <<< baton managed";
+const CODEX_FEATURE_ADDED = "# baton-managed-added";
+const CODEX_FEATURE_PREVIOUS_FALSE = "# baton-managed-previous=false";
+
+function selectedHosts(host: HostSelection): HostName[] {
+  return host === "all" ? ["claude", "codex", "gemini"] : [host];
+}
+
+function managedBlock(body: string): string {
+  return `${MANAGED_START}\n${body.trim()}\n${MANAGED_END}\n`;
+}
+
+function stripManagedBlock(body: string): string {
+  const re = new RegExp(`${escapeRegExp(MANAGED_START)}[\\s\\S]*?${escapeRegExp(MANAGED_END)}\\n?`, "g");
+  return body.replace(re, "").replace(/\n{3,}/g, "\n\n");
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function writeTextFile(path: string, body: string, dryRun: boolean): boolean {
+  const changed = !existsSync(path) || readFileSync(path, "utf8") !== body;
+  if (!dryRun && changed) {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, body, "utf8");
+  }
+  return changed;
+}
+
+function featuresTableRange(lines: string[]): { start: number; end: number } | null {
+  const start = lines.findIndex((line) => /^\s*\[features\]\s*(?:#.*)?$/.test(line));
+  if (start === -1) return null;
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i++) {
+    if (/^\s*\[/.test(lines[i] ?? "")) {
+      end = i;
+      break;
+    }
+  }
+  return { start, end };
+}
+
+function ensureCodexHooksFeature(config: string): string {
+  const lines = config.split(/\r?\n/);
+  const range = featuresTableRange(lines);
+  if (!range) {
+    const prefix = `[features]\ncodex_hooks = true ${CODEX_FEATURE_ADDED}\n`;
+    return config.trim() ? `${prefix}\n${config.trimStart()}` : prefix;
+  }
+
+  for (let i = range.start + 1; i < range.end; i++) {
+    const line = lines[i] ?? "";
+    const match = line.match(/^(\s*codex_hooks\s*=\s*)(true|false)(.*)$/);
+    if (!match) continue;
+    if (match[2] === "true") return lines.join("\n");
+    lines[i] = `${match[1]}true ${CODEX_FEATURE_PREVIOUS_FALSE}`;
+    return lines.join("\n");
+  }
+
+  lines.splice(range.start + 1, 0, `codex_hooks = true ${CODEX_FEATURE_ADDED}`);
+  return lines.join("\n");
+}
+
+function removeCodexHooksFeature(config: string): string {
+  const lines = config.split(/\r?\n/);
+  const next: string[] = [];
+  for (const line of lines) {
+    if (line.includes(CODEX_FEATURE_ADDED)) continue;
+    if (line.includes(CODEX_FEATURE_PREVIOUS_FALSE)) {
+      next.push(line.replace(/^(\s*codex_hooks\s*=\s*)true.*$/, "$1false"));
+    } else {
+      next.push(line);
+    }
+  }
+  return next.join("\n").replace(/\n{3,}/g, "\n\n");
+}
+
+function codexHooksToml(): string {
+  return [
+    '[[hooks.SessionStart]]',
+    'matcher = "resume|clear"',
+    '[[hooks.SessionStart.hooks]]',
+    'type = "command"',
+    `command = ${JSON.stringify(HOOK_SS_CMD)}`,
+    `timeout = ${BATON_HOOK_TIMEOUT_S}`,
+    "",
+    '[[hooks.UserPromptSubmit]]',
+    '[[hooks.UserPromptSubmit.hooks]]',
+    'type = "command"',
+    `command = ${JSON.stringify(HOOK_UPS_CMD)}`,
+    `timeout = ${BATON_HOOK_TIMEOUT_S}`,
+  ].join("\n");
+}
+
+function installCodex(dryRun: boolean): HostInstallSummary {
+  warnIfBunMissing();
+  const details: string[] = [];
+  const configPath = userCodexConfigPath();
+  const priorConfig = existsSync(configPath) ? readFileSync(configPath, "utf8") : "";
+  const strippedConfig = ensureCodexHooksFeature(stripManagedBlock(priorConfig)).trimEnd();
+  const nextConfig = `${strippedConfig}${strippedConfig ? "\n\n" : ""}${managedBlock(codexHooksToml())}`;
+  const configChanged = writeTextFile(configPath, nextConfig, dryRun);
+  if (configChanged) details.push(`${dryRun ? "would update" : "updated"} ${configPath} (hook timeout: ${BATON_HOOK_TIMEOUT_S}s — override with BATON_HOOK_TIMEOUT_S)`);
+
+  const template = readTemplateBodyWithOverride().body;
+  const skillPath = userAgentsBatonSkillPath();
+  const skillChanged = writeTextFile(skillPath, template, dryRun);
+  if (skillChanged) details.push(`${dryRun ? "would write" : "wrote"} ${skillPath}`);
+
+  if (!dryRun && (configChanged || skillChanged)) {
+    mkdirSync(dirname(hostInstallManifestPath("codex")), { recursive: true });
+    writeFileSync(
+      hostInstallManifestPath("codex"),
+      JSON.stringify({ installedAt: new Date().toISOString(), configPath, skillPath }, null, 2) + "\n",
+      "utf8",
+    );
+  }
+
+  return { host: "codex", dryRun, changed: configChanged || skillChanged, details };
+}
+
+function geminiCommandToml(description: string, prompt: string): string {
+  return `description = ${JSON.stringify(description)}\nprompt = ${JSON.stringify(prompt)}\n`;
+}
+
+function geminiBatonPrompt(): string {
+  return [
+    "Run the baton workflow exactly as written below. Write the file to `.baton/BATON.md`, validate it once with `baton validate .baton/BATON.md`, report the result, and stop.",
+    "",
+    readTemplateBodyWithOverride().body,
+  ].join("\n");
+}
+
+function geminiDropPrompt(): string {
+  return [
+    "Run `baton drop` using the shell tool. Relay the command output, then tell the user to start a fresh session if desired. Do not do any other work.",
+  ].join("\n");
+}
+
+function geminiSidecarPrompt(host: HostName): string {
+  return [
+    `Run \`baton sidecar ${host} --mode review\` unless the user's command text names \`review\`, \`critique\`, or \`alternative\`; in that case use the named mode.`,
+    "Surface any non-zero exit clearly. Do not act on the sidecar's suggestions without explicit user direction.",
+  ].join("\n");
+}
+
+function geminiHooksJson(): string {
+  return JSON.stringify({
+    hooks: {
+      SessionStart: [
+        {
+          matcher: "startup|resume|clear",
+          hooks: [
+            {
+              name: "baton-session-start",
+              type: "command",
+              command: HOOK_SS_CMD,
+            },
+          ],
+        },
+      ],
+      // BeforeAgent: fires after user prompt, before planning — Gemini's equivalent of Claude Code's UserPromptSubmit
+      BeforeAgent: [
+        {
+          matcher: "*",
+          hooks: [
+            {
+              name: "baton-before-agent",
+              type: "command",
+              command: HOOK_UPS_CMD,
+            },
+          ],
+        },
+      ],
+    },
+  }, null, 2) + "\n";
+}
+
+function installGemini(dryRun: boolean): HostInstallSummary {
+  warnIfBunMissing();
+  const details: string[] = [];
+  const extDir = userGeminiBatonExtensionDir();
+  const manifestChanged = writeTextFile(
+    join(extDir, "gemini-extension.json"),
+    JSON.stringify({
+      name: "baton",
+      version: VERSION,
+      description: "Session baton snapshot and resume workflow for Gemini CLI.",
+      contextFileName: "GEMINI.md",
+    }, null, 2) + "\n",
+    dryRun,
+  );
+  if (manifestChanged) details.push(`${dryRun ? "would write" : "wrote"} ${join(extDir, "gemini-extension.json")}`);
+
+  const contextChanged = writeTextFile(
+    join(extDir, "GEMINI.md"),
+    [
+      "# Baton extension",
+      "",
+      "Use baton when the user asks to save progress, snapshot, hand off, resume, or avoid context loss.",
+      "The canonical project file is `.baton/BATON.md`; legacy `.claude/baton/BATON.md` files remain readable.",
+      "",
+    ].join("\n"),
+    dryRun,
+  );
+  if (contextChanged) details.push(`${dryRun ? "would write" : "wrote"} ${join(extDir, "GEMINI.md")}`);
+
+  const commandBodies: Array<[string, string]> = [
+    ["baton.toml", geminiCommandToml("Write and validate .baton/BATON.md", geminiBatonPrompt())],
+    ["drop.toml", geminiCommandToml("Archive the pending BATON.md", geminiDropPrompt())],
+    // baton-codex.toml: asking Codex from inside Gemini is sensible.
+    // baton-gemini.toml omitted: Gemini spawning a second Gemini instance for a "second opinion" is self-referential.
+    ["baton-codex.toml", geminiCommandToml("Run Codex as a read-only baton sidecar", geminiSidecarPrompt("codex"))],
+  ];
+  const commandWrites = commandBodies.map(([file, body]) => {
+    const path = join(extDir, "commands", file);
+    const changed = writeTextFile(path, body, dryRun);
+    if (changed) details.push(`${dryRun ? "would write" : "wrote"} ${path}`);
+    return changed;
+  });
+
+  // Remove stale baton-gemini.toml left by older installs.
+  const staleGeminiCmd = join(extDir, "commands", "baton-gemini.toml");
+  const staleGeminiExists = existsSync(staleGeminiCmd);
+  if (staleGeminiExists && !dryRun) unlinkSync(staleGeminiCmd);
+  if (staleGeminiExists) details.push(`${dryRun ? "would remove stale" : "removed stale"} ${staleGeminiCmd}`);
+
+  const hooksPath = join(extDir, "hooks", "hooks.json");
+  const hooksChanged = writeTextFile(hooksPath, geminiHooksJson(), dryRun);
+  if (hooksChanged) details.push(`${dryRun ? "would write" : "wrote"} ${hooksPath}`);
+
+  const changed = manifestChanged || contextChanged || commandWrites.some(Boolean) || hooksChanged || staleGeminiExists;
+  if (!dryRun && changed) {
+    mkdirSync(dirname(hostInstallManifestPath("gemini")), { recursive: true });
+    writeFileSync(
+      hostInstallManifestPath("gemini"),
+      JSON.stringify({ installedAt: new Date().toISOString(), extensionDir: extDir, hooksPath }, null, 2) + "\n",
+      "utf8",
+    );
+  }
+
+  return { host: "gemini", dryRun, changed, details };
+}
+
+function dryRunClaude(): HostInstallSummary {
+  const r = check();
+  const details: string[] = [];
+  if (!r.statusLine.isCurrent) details.push(`would update ${userSettingsPath()} statusLine`);
+  if (!r.userPromptSubmit || !r.preCompact || !r.sessionStart) details.push(`would update ${userSettingsPath()} hooks`);
+  if (!r.batonCommand || !r.dropCommand || !r.batonCodexCommand || !r.batonGeminiCommand) {
+    details.push(`would write Claude slash commands under ${userCommandsDir()}`);
+  }
+  return { host: "claude", dryRun: true, changed: details.length > 0, details };
+}
+
+export function installHosts(opts: InstallOptions & { host?: HostSelection; dryRun?: boolean } = {}): MultiHostInstallReport {
+  const host = opts.host ?? "claude";
+  const dryRun = opts.dryRun ?? false;
+  const report: MultiHostInstallReport = { hosts: [] };
+  for (const h of selectedHosts(host)) {
+    if (h === "claude") {
+      if (dryRun) {
+        report.hosts.push(dryRunClaude());
+      } else {
+        const claude = install(opts);
+        report.claude = claude;
+        report.hosts.push({
+          host: "claude",
+          dryRun: false,
+          changed: claude.wroteStatusline || claude.wroteUserPromptSubmit || claude.wrotePreCompact ||
+            claude.wroteSessionStart || claude.wroteBatonCommand || claude.wroteDropCommand ||
+            claude.wroteBatonCodexCommand || claude.wroteBatonGeminiCommand,
+          details: ["Claude Code hooks, statusline, and slash commands checked"],
+        });
+      }
+    } else if (h === "codex") {
+      report.hosts.push(installCodex(dryRun));
+    } else {
+      report.hosts.push(installGemini(dryRun));
+    }
+  }
+  return report;
+}
+
+function codexCheck(): HostCheckSummary {
+  const configPath = userCodexConfigPath();
+  const config = existsSync(configPath) ? readFileSync(configPath, "utf8") : "";
+  const codexHooksFeature = /^\s*codex_hooks\s*=\s*true\b/m.test(config);
+  const hooks = config.includes(MANAGED_START) &&
+    config.includes("hook session-start") &&
+    config.includes("hook user-prompt-submit");
+  const skill = existsSync(userAgentsBatonSkillPath());
+  return {
+    host: "codex",
+    allPresent: codexHooksFeature && hooks && skill,
+    details: { configPath, codexHooksFeature, hooks, skillPath: userAgentsBatonSkillPath(), skill },
+  };
+}
+
+function geminiCheck(): HostCheckSummary {
+  const extDir = userGeminiBatonExtensionDir();
+  const manifest = existsSync(join(extDir, "gemini-extension.json"));
+  const batonCommand = existsSync(join(extDir, "commands", "baton.toml"));
+  const hooksJson = existsSync(join(extDir, "hooks", "hooks.json"));
+  const staleGeminiCmd = existsSync(join(extDir, "commands", "baton-gemini.toml"));
+  const settingsPath = userGeminiSettingsPath();
+  const settings = existsSync(settingsPath) ? readFileSync(settingsPath, "utf8") : "";
+  const legacySettingsHooks = settings.includes(HOOK_SS_CMD) && settings.includes(HOOK_UPS_CMD);
+  return {
+    host: "gemini",
+    allPresent: manifest && batonCommand && hooksJson && !staleGeminiCmd,
+    details: { extensionDir: extDir, manifest, batonCommand, hooksJson, staleGeminiCmd, settingsPath, legacySettingsHooks },
+  };
+}
+
+function claudeCheckSummary(): HostCheckSummary {
+  const r = check();
+  return {
+    host: "claude",
+    allPresent: r.allPresent,
+    details: {
+      settingsPath: userSettingsPath(),
+      statusLine: r.statusLine.isCurrent,
+      userPromptSubmit: r.userPromptSubmit,
+      preCompact: r.preCompact,
+      sessionStart: r.sessionStart,
+      batonCommand: r.batonCommand,
+      dropCommand: r.dropCommand,
+      batonCodexCommand: r.batonCodexCommand,
+      batonGeminiCommand: r.batonGeminiCommand,
+    },
+  };
+}
+
+export function checkHosts(host: HostSelection = "claude"): MultiHostCheckReport {
+  const hosts = selectedHosts(host).map((h) => {
+    if (h === "claude") return claudeCheckSummary();
+    if (h === "codex") return codexCheck();
+    return geminiCheck();
+  });
+  return {
+    version: VERSION,
+    hosts,
+    allPresent: hosts.every((h) => h.allPresent),
+  };
+}
+
+function uninstallCodex(): HostUninstallSummary {
+  const details: string[] = [];
+  const configPath = userCodexConfigPath();
+  if (existsSync(configPath)) {
+    const prior = readFileSync(configPath, "utf8");
+    const next = removeCodexHooksFeature(stripManagedBlock(prior));
+    if (next !== prior) {
+      writeFileSync(configPath, next, "utf8");
+      details.push(`updated ${configPath}`);
+    }
+  }
+  const skillDir = userAgentsBatonSkillDir();
+  const skillPath = userAgentsBatonSkillPath();
+  // Ownership check works because installCodex writes src/baton/template.md, which starts with ---\nname: baton\n
+  if (existsSync(skillPath) && startsWithFrontmatter(skillPath, "baton")) {
+    rmSync(skillDir, { recursive: true, force: true });
+    details.push(`removed ${skillDir}`);
+  }
+  const manifest = hostInstallManifestPath("codex");
+  if (existsSync(manifest)) {
+    rmSync(manifest);
+    details.push(`removed ${manifest}`);
+  }
+  return { host: "codex", changed: details.length > 0, details };
+}
+
+function uninstallGemini(): HostUninstallSummary {
+  // Baton uses the Gemini extension mechanism (~/.gemini/extensions/baton/), not settings.json.
+  const details: string[] = [];
+  const extDir = userGeminiBatonExtensionDir();
+  const manifest = join(extDir, "gemini-extension.json");
+  if (existsSync(manifest)) {
+    try {
+      const parsed = JSON.parse(readFileSync(manifest, "utf8")) as { name?: string };
+      if (parsed.name === "baton") {
+        rmSync(extDir, { recursive: true, force: true });
+        details.push(`removed ${extDir}`);
+      }
+    } catch { /* leave unrecognized extension alone */ }
+  }
+  const installManifest = hostInstallManifestPath("gemini");
+  if (existsSync(installManifest)) {
+    rmSync(installManifest);
+    details.push(`removed ${installManifest}`);
+  }
+  return { host: "gemini", changed: details.length > 0, details };
+}
+
+export function uninstallHosts(host: HostSelection = "claude"): MultiHostUninstallReport {
+  const report: MultiHostUninstallReport = { hosts: [] };
+  for (const h of selectedHosts(host)) {
+    if (h === "claude") {
+      const claude = uninstall();
+      report.claude = claude;
+      report.hosts.push({
+        host: "claude",
+        changed: claude.restoredSettingsFrom !== null || claude.fallbackSurgical || claude.removedFiles.length > 0,
+        details: ["Claude Code settings and slash commands checked"],
+      });
+    } else if (h === "codex") {
+      report.hosts.push(uninstallCodex());
+    } else {
+      report.hosts.push(uninstallGemini());
+    }
+  }
+  return report;
+}
+
+export function printMultiHostInstallReport(r: MultiHostInstallReport): void {
+  for (const host of r.hosts) {
+    const prefix = host.dryRun ? "baton install dry-run" : "baton install";
+    process.stdout.write(`${prefix} [${host.host}] ${host.changed ? "changes" : "already current"}\n`);
+    for (const detail of host.details) process.stdout.write(`  ${detail}\n`);
+  }
+}
+
+export function printMultiHostCheckReport(r: MultiHostCheckReport): void {
+  process.stdout.write(`baton v${r.version}\n\n`);
+  for (const host of r.hosts) {
+    process.stdout.write(`  ${host.host.padEnd(8)} ${host.allPresent ? "installed" : "missing"}\n`);
+    for (const [key, value] of Object.entries(host.details)) {
+      process.stdout.write(`    ${key}: ${String(value)}\n`);
+    }
+  }
+}
+
+export function printMultiHostUninstallReport(r: MultiHostUninstallReport): void {
+  for (const host of r.hosts) {
+    process.stdout.write(`baton uninstall [${host.host}] ${host.changed ? "changed" : "no changes"}\n`);
+    for (const detail of host.details) process.stdout.write(`  ${detail}\n`);
+  }
 }

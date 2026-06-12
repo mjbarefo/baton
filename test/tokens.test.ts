@@ -1,5 +1,5 @@
 import { expect, test, describe } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { snapshotFromEntries, snapshotFromTranscript } from "../src/transcript/tokens.ts";
@@ -75,6 +75,15 @@ describe("snapshotFromEntries", () => {
     const snap = snapshotFromEntries([assistant({ input_tokens: 42 })]);
     expect(snap.total).toBe(42);
   });
+
+  test("accepts Codex/Gemini-style top-level usage fields", () => {
+    const snap = snapshotFromEntries([
+      { type: "model", usage: { prompt_token_count: 1200, candidates_token_count: 300, total_tokens: 1500 } },
+    ]);
+    expect(snap.total).toBe(1500);
+    expect(snap.input).toBe(1200);
+    expect(snap.output).toBe(300);
+  });
 });
 
 describe("snapshotFromTranscript", () => {
@@ -93,6 +102,26 @@ describe("snapshotFromTranscript", () => {
 
       expect(snap.total).toBe(130_000);
       expect(snap.output).toBe(900);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test("skips trailing non-usage entries when reading from the transcript tail", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "baton-tokens-tail-"));
+    try {
+      const path = join(tmp, "transcript.jsonl");
+      writeFileSync(
+        path,
+        [
+          JSON.stringify({ type: "model", usage: { total_tokens: 900, prompt_tokens: 800, output_tokens: 100 } }),
+          JSON.stringify({ type: "user", message: { role: "user", content: "thanks" } }),
+        ].join("\n") + "\n",
+      );
+
+      const snap = snapshotFromTranscript(path);
+
+      expect(snap.total).toBe(900);
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }

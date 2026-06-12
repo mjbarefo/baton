@@ -4,13 +4,13 @@ This file provides guidance to Gemini CLI when working with the `baton` codebase
 
 ## Project Overview
 
-**baton** (published as `ccbaton` on npm) is a snapshot-and-resume tool for Claude Code. It helps users preserve context across sessions by writing a structured `BATON.md` file containing the current working state. This prevents context loss due to Claude Code's auto-compaction.
+**baton** (published as `ccbaton` on npm) is a local-first snapshot-and-resume tool for coding agents. It helps users preserve context across sessions by writing a structured `.baton/BATON.md` file containing the current working state. Claude Code, Codex CLI, and Gemini CLI are host adapters around that file.
 
 ### Core Technologies
 - **Runtime:** Node.js (>=20) for published installs; Bun for local development.
 - **Language:** TypeScript.
 - **Build System:** Bun (used for bundling, testing, and running scripts).
-- **Primary Integration:** Claude Code (patches `~/.claude/settings.json`).
+- **Primary Integrations:** Claude Code (`~/.claude/settings.json`), Codex CLI (`~/.codex/config.toml` plus a skill), and Gemini CLI (`~/.gemini/extensions/baton` with commands, context, and extension hooks).
 
 ## Building and Running
 
@@ -21,7 +21,7 @@ bun test             # Run all tests using Bun's test runner
 bun test test/tokens.test.ts   # Run a specific test file
 bun run build        # Bundle the project to dist/cli.js (Node-portable)
 bun run typecheck    # Run TypeScript compiler for type checking (tsc --noEmit)
-bun run src/cli.ts install     # Install from source into ~/.claude/
+bun run src/cli.ts install --host all   # Install from source into supported hosts
 bun run src/cli.ts uninstall   # Remove baton hooks and restore settings.json
 bun run src/cli.ts check       # Verify current installation state
 bun run src/cli.ts sidecar gemini --mode review --dry-run
@@ -36,9 +36,9 @@ bun run src/cli.ts sidecar gemini --mode review --dry-run
 
 The project is structured into modular components:
 
-- **`src/cli.ts`**: The main entry point. Dispatches subcommands (`statusline`, `hook <event>`, `install`, `check`, `uninstall`, `catch`, `drop`, `reconstruct`, `list`, `show`, `prune`, `recall`, `sidecar`). Also handles `--version`/`-v`.
-- **`src/config.ts`**: Shared constants, path helpers (`userClaudeDir()`, `userSettingsPath()`), threshold values, `VERSION`, and the self-locating `buildCommand()` that generates hook commands pointing at the current install location (source-mode uses `bun run`, published uses `node`).
-- **`src/hooks/`**: Implements Claude Code hook handlers:
+- **`src/cli.ts`**: The main entry point. Dispatches subcommands (`statusline`, `hook <event>`, `install`, `check`, `uninstall`, `validate`, `status`, `catch`, `drop`, `reconstruct`, `list`, `show`, `prune`, `recall`, `sidecar`). Also handles `--version`/`-v`.
+- **`src/config.ts`**: Shared constants, canonical/legacy baton paths, host path helpers, threshold values, `VERSION`, and the self-locating `buildCommand()` that generates hook commands pointing at the current install location (source-mode uses `bun run`, published uses `node`).
+- **`src/hooks/`**: Implements hook handlers used by host adapters:
     - `session-start.ts`: On `/clear` or resume, reads `BATON.md`, injects it as `additionalContext`, then archives it so the resume is one-shot.
     - `user-prompt-submit.ts`: Nudges the user/model to snapshot when context crosses soft/hard thresholds. At the hard threshold, injects the full baton protocol. Also fires a time-based nudge when session age ≥ 5 hours with ≥ 30k tokens in context, at most once per session.
     - `pre-compact.ts`: Intercepts auto-compaction. If a fresh baton exists, blocks. Otherwise writes a fallback baton from the transcript, then blocks. Never returns `"allow"`.
@@ -48,19 +48,22 @@ The project is structured into modular components:
     - `archive-library.ts`: List, show, prune, and recall archived batons (`list`, `show`, `prune`, `recall` subcommands).
     - `catch.ts`: CLI resume from the nearest `BATON.md`.
     - `drop.ts`: Discard the nearest `BATON.md`.
-    - `fallback-writer.ts`: Deterministic baton generation from a transcript when Claude has not written one.
-    - `find.ts`: Walk up the directory tree to locate `BATON.md`.
+    - `fallback-writer.ts`: Deterministic baton generation from a transcript when the active agent has not written one.
+    - `find.ts`: Walk up the directory tree to locate canonical `.baton/BATON.md` or legacy `.claude/baton/BATON.md`.
+    - `freshness.ts`: Shared freshness calculation for hooks, statusline, and status.
     - `reconstruct.ts`: Rebuild a baton from a transcript JSONL file (`reconstruct` subcommand).
     - `redact.ts`: Strip secrets from baton content before it leaves the machine (used by sidecars and fallback writer). Loads patterns from user home and project root.
     - `state.ts`: Per-session state file helpers (token level, time nudge flag).
+    - `status.ts`: Project baton status and latest archive summary.
     - `template-loader.ts`: Reads the `/baton` command template (`src/baton/template.md`).
-- **`src/install/settings-patch.ts`**: Idempotent installation that patches `~/.claude/settings.json`: merges hooks, sets statusline, writes skill + command files, prunes stale entries, migrates old artifacts. Backs up settings before modifying. Also exports `check()` and `uninstall()`.
+    - `validate.ts`: Deterministic baton quality checks and redaction scan.
+- **`src/install/settings-patch.ts`**: Host adapter installation. Claude patching remains idempotent; Codex writes a managed hook block and skill; Gemini writes an extension, TOML commands, context, and lifecycle hooks. Also exports single-host and multi-host check/uninstall helpers.
 - **`src/sidecar/`**: Headless second-opinion runners for Codex and Gemini:
     - `run.ts`: Shared orchestration — finds `BATON.md`, redacts secrets, composes the prompt, checks that the binary is on PATH, and spawns the child process.
     - `prompts.ts`: Defines the three modes (`review`, `critique`, `alternative`) and their preambles. `composePrompt()` always appends a guard against file writes or shell execution.
     - `gemini.ts`: Gemini-specific `HostAdapter` — invokes `gemini --prompt <prompt> --model pro --approval-mode plan`.
     - `codex.ts`: Codex-specific `HostAdapter` — invokes `codex exec` with `--sandbox read-only --ephemeral`, passing the prompt on stdin.
-- **`src/transcript/`**: Utilities for parsing Claude Code's JSONL transcript files (`read.ts`, `tokens.ts`).
+- **`src/transcript/`**: Utilities for parsing JSONL transcript/token usage shapes (`read.ts`, `tokens.ts`), including Claude-style message usage and broader Codex/Gemini-style top-level usage fields.
 
 ### Sidecar command flow (installed into Claude Code)
 

@@ -7,11 +7,23 @@ import { TEST_HOME } from "./helpers/test-home.ts";
 
 type SpawnMode = "exit" | "error";
 let spawnMode: SpawnMode = "exit";
+let binaryMissing = false;
 const spawnCalls: unknown[][] = [];
 const actualChildProcess = await import("node:child_process");
+// Capture the real spawnSync BEFORE mock.module mutates the namespace —
+// otherwise the proxy below recurses into itself (which hangs any later test
+// file whose code path calls spawnSync with a cmd that isn't which/where).
+const realSpawnSync = actualChildProcess.spawnSync;
 
 mock.module("node:child_process", () => ({
   ...actualChildProcess,
+  spawnSync: (cmd: string, args: string[], opts: unknown) => {
+    // Intercept which/where PATH checks; pass everything else through.
+    if (cmd === "which" || cmd === "where") {
+      return { status: binaryMissing ? 1 : 0 };
+    }
+    return realSpawnSync(cmd, args, opts as Parameters<typeof actualChildProcess.spawnSync>[2]);
+  },
   spawn: (...args: unknown[]) => {
     spawnCalls.push(args);
     const child = new EventEmitter();
@@ -27,7 +39,7 @@ mock.module("node:child_process", () => ({
 }));
 
 const { catchBaton } = await import("../src/baton/catch.ts");
-const BATON_ARCHIVE_DIR = join(TEST_HOME, ".claude", "baton", "archive");
+const BATON_ARCHIVE_DIR = join(TEST_HOME, ".baton", "archive");
 
 let tmp: string;
 let stdoutCapture: string;
@@ -36,7 +48,7 @@ let origStdoutWrite: typeof process.stdout.write;
 let origStderrWrite: typeof process.stderr.write;
 
 function writeBaton(project: string, body = "# Baton\nnext\n"): string {
-  const dir = join(project, ".claude", "baton");
+  const dir = join(project, ".baton");
   mkdirSync(dir, { recursive: true });
   const path = join(dir, "BATON.md");
   writeFileSync(path, body);
@@ -47,7 +59,9 @@ beforeEach(() => {
   tmp = join(tmpdir(), `baton-catch-${crypto.randomUUID()}`);
   mkdirSync(tmp, { recursive: true });
   rmSync(join(TEST_HOME, ".claude"), { recursive: true, force: true });
+  rmSync(join(TEST_HOME, ".baton"), { recursive: true, force: true });
   spawnMode = "exit";
+  binaryMissing = false;
   spawnCalls.length = 0;
   stdoutCapture = "";
   stderrCapture = "";
@@ -68,6 +82,7 @@ afterEach(() => {
   process.stderr.write = origStderrWrite;
   rmSync(tmp, { recursive: true, force: true });
   rmSync(join(TEST_HOME, ".claude"), { recursive: true, force: true });
+  rmSync(join(TEST_HOME, ".baton"), { recursive: true, force: true });
 });
 
 describe("catchBaton", () => {
@@ -108,11 +123,77 @@ describe("catchBaton", () => {
     expect(existsSync(archivePath)).toBe(true);
   });
 
+  test("fails with a clear error and leaves baton in place when host binary is not on PATH", async () => {
+    binaryMissing = true;
+    const project = join(tmp, "project-no-binary");
+    const baton = writeBaton(project, "# Baton\nprecious state\n");
+
+    const code = await catchBaton({ cwd: project, host: "codex" });
+
+    expect(code).toBe(1);
+    expect(stderrCapture).toContain("'codex' not found on PATH");
+    // Baton must NOT have been archived — it should still be in place
+    expect(existsSync(baton)).toBe(true);
+    expect(existsSync(BATON_ARCHIVE_DIR)).toBe(false);
+    expect(spawnCalls).toHaveLength(0);
+  });
+
+  test("spawns the selected Codex host", async () => {
+    const project = join(tmp, "project-codex");
+    writeBaton(project, "# Baton\ncodex resume\n");
+
+    const code = await catchBaton({ cwd: project, host: "codex" });
+
+    expect(code).toBe(0);
+    expect(spawnCalls).toHaveLength(1);
+    expect(spawnCalls[0]?.[0]).toBe("codex");
+    expect(spawnCalls[0]?.[1]).toEqual([expect.stringContaining("Next Concrete Action")]);
+  });
+
+  test("dry-run shows the selected Gemini invocation", async () => {
+    const project = join(tmp, "project-gemini");
+    const baton = writeBaton(project);
+
+    const code = await catchBaton({ cwd: project, dryRun: true, host: "gemini" });
+
+    expect(code).toBe(0);
+    expect(existsSync(baton)).toBe(true);
+    expect(stdoutCapture).toContain("[dry-run]");
+    expect(stdoutCapture).toContain('"gemini"');
+    expect(stdoutCapture).toContain("--prompt");
+    expect(spawnCalls).toHaveLength(0);
+  });
+
+  test("prefers fresh legacy baton over stale canonical baton", async () => {
+    const project = join(tmp, "project-freshness");
+
+    // Stale canonical .baton/BATON.md
+    mkdirSync(join(project, ".baton"), { recursive: true });
+    const stalePath = join(project, ".baton", "BATON.md");
+    writeFileSync(stalePath, "# stale canonical");
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    const { utimesSync } = await import("node:fs");
+    utimesSync(stalePath, oneHourAgo, oneHourAgo);
+
+    // Fresh legacy .claude/baton/BATON.md
+    mkdirSync(join(project, ".claude", "baton"), { recursive: true });
+    writeFileSync(join(project, ".claude", "baton", "BATON.md"), "# fresh legacy");
+
+    const code = await catchBaton({ cwd: project });
+
+    expect(code).toBe(0);
+    const archived = readdirSync(BATON_ARCHIVE_DIR);
+    expect(archived).toHaveLength(1);
+    // Should have archived the fresh legacy baton, not the stale canonical
+    const archivedContent = readFileSync(join(BATON_ARCHIVE_DIR, archived[0]!), "utf8");
+    expect(archivedContent).toContain("fresh legacy");
+  });
+
   test("returns a graceful error when no baton exists", async () => {
     const code = await catchBaton({ cwd: tmp });
 
     expect(code).toBe(1);
-    expect(stderrCapture).toContain("no .claude/baton/BATON.md found");
+    expect(stderrCapture).toContain("no .baton/BATON.md found");
     expect(spawnCalls).toHaveLength(0);
   });
 

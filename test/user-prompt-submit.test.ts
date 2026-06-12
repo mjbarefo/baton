@@ -14,7 +14,7 @@ import { TEST_HOME } from "./helpers/test-home.ts";
 // Import after TEST_HOME sets USERPROFILE/HOME so batonStateDir() resolves correctly.
 const { runUserPromptSubmitHook } = await import("../src/hooks/user-prompt-submit.ts");
 
-const STATE_DIR = join(TEST_HOME, ".claude", "baton", "state");
+const STATE_DIR = join(TEST_HOME, ".baton", "state");
 
 let tmp: string;
 let stdoutCapture: string;

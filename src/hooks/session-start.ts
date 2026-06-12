@@ -1,7 +1,6 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import { archiveBaton } from "../baton/archive.ts";
-import { BATON_FRESH_MS, BATON_REL_PATH } from "../config.ts";
+import { freshestExistingBatonWalkingUp } from "../baton/freshness.ts";
 
 interface HookPayload {
   session_id?: string;
@@ -11,18 +10,8 @@ interface HookPayload {
   source?: "startup" | "resume" | "clear" | "compact";
 }
 
-function isFresh(path: string): boolean {
-  if (!existsSync(path)) return false;
-  try {
-    const stat = statSync(path);
-    return Date.now() - stat.mtimeMs < BATON_FRESH_MS;
-  } catch {
-    return false;
-  }
-}
-
 const RESUME_INSTRUCTIONS =
-  '\n\n---\nYou are resuming a prior Claude Code session. The block above is the full baton written by baton at the end of the previous session. Read it once, confirm understanding in one short sentence, then execute the "Next Concrete Action". Do not re-plan. Do not re-explore. Trust the baton.';
+  '\n\n---\nYou are resuming a prior coding-agent session. The block above is the full baton written by baton at the end of the previous session. Read it once, confirm understanding in one short sentence, then execute the "Next Concrete Action". Do not re-plan. Do not re-explore. Trust the baton.';
 
 export async function runSessionStartHook(raw: string): Promise<number> {
   let payload: HookPayload = {};
@@ -33,17 +22,21 @@ export async function runSessionStartHook(raw: string): Promise<number> {
   }
 
   if (!payload.source || payload.source === "startup") return 0;
+  // "compact" is a real spec value (fires when auto or manual compaction runs).
+  // In practice it should never reach us because PreCompact always blocks, but we
+  // handle it defensively: if compaction somehow succeeded and a fresh baton exists,
+  // inject it so the session isn't left context-free.
   if (!["clear", "resume", "compact"].includes(payload.source)) return 0;
 
   const cwd = payload.cwd || process.cwd();
-  const batonPath = join(cwd, BATON_REL_PATH);
-  if (!isFresh(batonPath)) return 0;
+  const baton = freshestExistingBatonWalkingUp(cwd);
+  if (!baton?.fresh) return 0;
 
   let body = "";
   try {
-    body = readFileSync(batonPath, "utf8");
+    body = readFileSync(baton.path, "utf8");
   } catch (err) {
-    process.stderr.write(`baton session-start: failed to read ${batonPath}: ${String(err)}\n`);
+    process.stderr.write(`baton session-start: failed to read ${baton.path}: ${String(err)}\n`);
     return 0;
   }
 
@@ -61,9 +54,9 @@ export async function runSessionStartHook(raw: string): Promise<number> {
   );
 
   try {
-    archiveBaton(batonPath);
+    archiveBaton(baton.path);
   } catch (err) {
-    process.stderr.write(`baton session-start: failed to archive ${batonPath}: ${String(err)}\n`);
+    process.stderr.write(`baton session-start: failed to archive ${baton.path}: ${String(err)}\n`);
   }
 
   return 0;

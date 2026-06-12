@@ -12,14 +12,22 @@ mock.module("../src/config.ts", () => ({
   buildCommand: (sub: string) => `bun run "${TEST_CLI_PATH}" ${sub}`,
 }));
 
-const { install } = await import("../src/install/settings-patch.ts");
+const { install, installHosts, checkHosts, uninstallHosts } = await import("../src/install/settings-patch.ts");
 
 beforeEach(() => {
   rmSync(join(TEST_HOME, ".claude"), { recursive: true, force: true });
+  rmSync(join(TEST_HOME, ".baton"), { recursive: true, force: true });
+  rmSync(join(TEST_HOME, ".codex"), { recursive: true, force: true });
+  rmSync(join(TEST_HOME, ".gemini"), { recursive: true, force: true });
+  rmSync(join(TEST_HOME, ".agents"), { recursive: true, force: true });
 });
 
 afterEach(() => {
   rmSync(join(TEST_HOME, ".claude"), { recursive: true, force: true });
+  rmSync(join(TEST_HOME, ".baton"), { recursive: true, force: true });
+  rmSync(join(TEST_HOME, ".codex"), { recursive: true, force: true });
+  rmSync(join(TEST_HOME, ".gemini"), { recursive: true, force: true });
+  rmSync(join(TEST_HOME, ".agents"), { recursive: true, force: true });
 });
 
 test("install writes SessionStart hook entry and reports wroteSessionStart on clean install", () => {
@@ -259,4 +267,73 @@ test("install leaves baton skill dir alone when it has unexpected files", () => 
   expect(existsSync(skillPath)).toBe(true);
   expect(existsSync(extra)).toBe(true);
   expect(report.migratedSkills).not.toContain(skillDir);
+});
+
+test("installHosts dry-run for all hosts does not write host files", () => {
+  const report = installHosts({ host: "all", dryRun: true });
+
+  expect(report.hosts.map((h) => h.host)).toEqual(["claude", "codex", "gemini"]);
+  expect(existsSync(join(TEST_HOME, ".codex", "config.toml"))).toBe(false);
+  expect(existsSync(join(TEST_HOME, ".gemini", "extensions", "baton"))).toBe(false);
+  expect(existsSync(join(TEST_HOME, ".agents", "skills", "baton", "SKILL.md"))).toBe(false);
+});
+
+test("installHosts writes Codex config hooks and user skill", () => {
+  const report = installHosts({ host: "codex" });
+
+  expect(report.hosts[0]?.changed).toBe(true);
+  const config = readFileSync(join(TEST_HOME, ".codex", "config.toml"), "utf8");
+  expect(config).toContain("[features]");
+  expect(config).toContain("codex_hooks = true");
+  expect(config).toContain("[[hooks.SessionStart]]");
+  expect(config).toContain("hook session-start");
+  expect(config).toContain("hook user-prompt-submit");
+
+  const skill = readFileSync(join(TEST_HOME, ".agents", "skills", "baton", "SKILL.md"), "utf8");
+  expect(skill).toContain("name: baton");
+  expect(skill).toContain(".baton/BATON.md");
+
+  const check = checkHosts("codex");
+  expect(check.allPresent).toBe(true);
+});
+
+test("installHosts restores a pre-existing disabled Codex hook feature on uninstall", () => {
+  const configPath = join(TEST_HOME, ".codex", "config.toml");
+  mkdirSync(join(TEST_HOME, ".codex"), { recursive: true });
+  writeFileSync(configPath, "[features]\ncodex_hooks = false\n");
+
+  installHosts({ host: "codex" });
+  expect(readFileSync(configPath, "utf8")).toContain("codex_hooks = true");
+
+  uninstallHosts("codex");
+  expect(readFileSync(configPath, "utf8")).toContain("codex_hooks = false");
+});
+
+test("installHosts writes Gemini extension commands and hooks", () => {
+  const report = installHosts({ host: "gemini" });
+
+  expect(report.hosts[0]?.changed).toBe(true);
+  const extDir = join(TEST_HOME, ".gemini", "extensions", "baton");
+  expect(JSON.parse(readFileSync(join(extDir, "gemini-extension.json"), "utf8")).name).toBe("baton");
+  expect(readFileSync(join(extDir, "commands", "baton.toml"), "utf8")).toContain(".baton/BATON.md");
+
+  const hooks = readFileSync(join(extDir, "hooks", "hooks.json"), "utf8");
+  expect(hooks).toContain("hook session-start");
+  expect(hooks).toContain("hook user-prompt-submit");
+
+  const check = checkHosts("gemini");
+  expect(check.allPresent).toBe(true);
+});
+
+test("uninstallHosts removes Codex and Gemini managed artifacts", () => {
+  installHosts({ host: "all" });
+
+  const report = uninstallHosts("all");
+
+  expect(report.hosts.map((h) => h.host)).toEqual(["claude", "codex", "gemini"]);
+  expect(existsSync(join(TEST_HOME, ".agents", "skills", "baton", "SKILL.md"))).toBe(false);
+  expect(existsSync(join(TEST_HOME, ".gemini", "extensions", "baton"))).toBe(false);
+  const codexConfig = readFileSync(join(TEST_HOME, ".codex", "config.toml"), "utf8");
+  expect(codexConfig).not.toContain("baton managed");
+  expect(codexConfig).not.toContain("codex_hooks = true");
 });

@@ -6,120 +6,48 @@ where it touches user settings or session recovery.
 
 ## Product Direction
 
-baton already covers the core loop:
+baton now treats `.baton/BATON.md` as the host-neutral contract and layers host
+adapters around it. The core loop covers:
 
 - install Claude Code hooks, statusline, and slash commands
+- install Codex CLI hooks plus a baton skill
+- install a Gemini CLI extension with commands, context, and hooks
 - nudge before context pressure or rate-limit pressure makes a clean handoff hard
-- block auto-compaction and write a fallback baton when needed
+- block Claude Code auto-compaction and write a fallback baton when needed
 - resume once from a fresh `BATON.md`, then archive it
 - recover with `catch`, `reconstruct`, archive listing, search, and pruning
 - redact deterministic fallback batons
-- get a second opinion via headless Codex or Gemini sidecars (`/baton-codex`, `/baton-gemini`) without leaving the session
+- validate authored batons before telling users to clear/resume
+- get a second opinion via headless Codex or Gemini sidecars without leaving the session
 
-The next useful work should improve confidence in those handoffs before adding
-larger features. A bad baton is worse than no baton because the next session is
-explicitly instructed to trust it.
+The next useful work should improve host-specific correctness and confidence in
+the new adapters before adding larger features.
 
-## Recommended Next PR: `baton validate`
+## Implemented In The Multi-Host Pass
 
-Add a deterministic validator for `BATON.md`.
+- Canonical project path: `.baton/BATON.md`.
+- Legacy path read compatibility: `.claude/baton/BATON.md`.
+- Shared user state/archive/template/redaction paths under `~/.baton/`.
+- `baton validate`, `baton status`, `baton check --json`, and `baton install --dry-run`.
+- `baton install|check|uninstall --host claude|codex|gemini|all`.
+- `baton catch --host claude|codex|gemini`.
+- Host-neutral sidecar wording and shared redaction before external CLI execution.
 
-### Why
+## Recommended Next PR: Installer Hardening
 
-The highest-risk user experience is not installation. It is a baton that exists
-but is too vague, missing the next action, missing files, or accidentally
-contains a secret. The current `/baton` template asks Claude to write a good
-handoff, but there is no local check that the result is actually usable.
+The highest-risk area is now installer correctness across host config surfaces.
+Claude settings are covered well, but Codex TOML and Gemini extension generation
+should get broader fixture coverage before this is considered stable.
 
-### Proposed CLI
+Add focused tests for:
 
-```bash
-baton validate                 # validates .claude/baton/BATON.md
-baton validate path/to/BATON.md
-baton validate --json
-baton validate --strict
-```
-
-Exit codes:
-
-- `0`: valid
-- `1`: invalid baton
-- `2`: usage or unreadable file
-
-### Validation Rules
-
-Initial rules should be simple and deterministic:
-
-- required headers are present exactly once
-- `Current Goal` is not empty, `_none_`, or `_unknown_`
-- `Next Concrete Action` is not empty, `_none_`, or generic filler like
-  "continue the work"
-- `Active Work` includes `What`, `Where`, `Why`, and `State`
-- `State` is one of `Unstarted`, `edited-not-tested`, `tested-failing`,
-  `tested-passing`, or `blocked`
-- `Recent Test / Build State` names a command or explicitly says no command ran
-- code references in `Completed This Session`, `Active Work`, and `Key Files`
-  should look like paths, preferably with line numbers
-- default and user/project redaction patterns are scanned and reported
-
-`--strict` can fail on weaker heuristics, such as missing line numbers, too many
-unknown fields, or an overlong `Recent Turns` section from a fallback baton.
-
-### Template Integration
-
-Update the `/baton` command template so after writing the file it runs:
-
-```bash
-baton validate .claude/baton/BATON.md
-```
-
-If validation fails, Claude should fix the baton once and run validation again.
-The command should still stop after the baton is valid, preserving the existing
-"do not continue new work after writing" behavior.
-
-### Implementation Sketch
-
-- Add `src/baton/validate.ts`.
-- Reuse redaction pattern loading from `src/baton/redact.ts`.
-- Add a `validate` branch to `src/cli.ts`.
-- Keep output terse for humans and structured for `--json`.
-- Add tests for valid baton, missing sections, weak next action, invalid state,
-  and secret-like content.
+- Codex TOML preservation around existing user config.
+- Gemini extension hook generation and uninstall safety.
+- Uninstall safety when generated skill/extension files are user-modified.
+- `install --dry-run --host all` output shape.
+- `check --json` stability for scripts.
 
 ## Other Feature Candidates
-
-### `baton status`
-
-Show project-local handoff state without requiring Claude Code's statusline
-payload:
-
-- current `BATON.md` path, age, and freshness
-- parsed current goal
-- latest archive for this project
-- install health summary
-- state file nudge level if a session id is provided
-
-This would be useful for debugging and for users who want a normal shell command
-before deciding whether to `/clear`, `/drop`, or `catch`.
-
-### `baton check --json`
-
-The existing `check` is useful but human-oriented. JSON output would make it
-easier to write issue templates, bug reports, scripts, or CI smoke checks.
-
-The shape can mirror `CheckReport` from `src/install/settings-patch.ts`.
-
-### Install Dry Run
-
-Add:
-
-```bash
-baton install --dry-run
-```
-
-It should print what would change in `settings.json`, commands, and stale
-artifacts without writing anything. This is mostly an open-source trust feature:
-users are rightly cautious about a package that patches editor-agent settings.
 
 ### Config File
 
@@ -132,7 +60,7 @@ could support:
 - archive retention defaults
 - strict validation defaults
 
-Do this after `validate` and `check --json`, because config multiplies the
+Do this after the multi-host installers settle, because config multiplies the
 number of behavioral combinations that need tests.
 
 ### Archive Improvements
@@ -146,10 +74,10 @@ The archive is already useful. Next increments:
 
 ### Post-Write Scrub
 
-Fallback batons are redacted today; Claude-authored `/baton` files are not. A
+Fallback batons are redacted today; agent-authored `/baton` files are not. A
 validator can warn first. Later, a separate `baton scrub` command could rewrite
 a baton with redactions applied, but it should be opt-in because rewriting
-Claude-authored prose can hide useful context.
+agent-authored prose can hide useful context.
 
 ## Cleanup Candidates
 
@@ -168,14 +96,6 @@ Possible split:
 
 This should be done after the current installer cleanup lands, not in the same
 PR as a feature.
-
-### Centralize Baton Freshness
-
-`isFresh` logic appears in multiple hook files and the statusline checks similar
-state. Move freshness calculation into a small `src/baton/freshness.ts` helper
-that returns `{ exists, fresh, ageMs }`.
-
-That helper would also support `baton status`.
 
 ### Centralize CLI Parsing
 
@@ -214,8 +134,7 @@ Current statusline is compact and useful. Polish candidates:
 
 ## Review Order
 
-1. Implement `baton validate`.
-2. Wire validation into the `/baton` template.
-3. Add `check --json`.
-4. Consider `baton status` once freshness and validation helpers exist.
-
+1. Harden Codex TOML and Gemini extension patching.
+2. Split `settings-patch.ts` into host-specific installers plus shared helpers.
+3. Add more transcript fixtures for Codex and Gemini formats.
+4. Add validation status to archive listing.

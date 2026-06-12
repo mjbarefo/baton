@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
-import { dirname } from "node:path";
 import { BATON_REL_PATH, userHomeDir } from "../config.ts";
 import { findBaton } from "../baton/find.ts";
+import { projectRootForBaton } from "../baton/archive.ts";
 import {
   redact,
   loadUserPatterns,
@@ -40,6 +40,7 @@ function isOnPath(bin: string): boolean {
   return result.status === 0;
 }
 
+
 export async function runSidecar(opts: SidecarOptions): Promise<number> {
   if (!isSidecarMode(opts.mode)) {
     process.stderr.write(
@@ -51,12 +52,12 @@ export async function runSidecar(opts: SidecarOptions): Promise<number> {
   const batonPath = findBaton(opts.cwd);
   if (!batonPath) {
     process.stderr.write(
-      `baton sidecar: no ${BATON_REL_PATH} found walking up from ${opts.cwd}. Run /baton in Claude Code first to write a baton.\n`,
+      `baton sidecar: no ${BATON_REL_PATH} found walking up from ${opts.cwd}. Write a baton first with /baton or a host-native baton command.\n`,
     );
     return 1;
   }
 
-  const batonRoot = dirname(dirname(dirname(batonPath)));
+  const batonRoot = projectRootForBaton(batonPath);
   const rawBody = readFileSync(batonPath, "utf8");
   const patterns = [
     ...DEFAULT_PATTERNS,

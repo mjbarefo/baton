@@ -7,21 +7,23 @@ const actualConfig = await import("../src/config.ts");
 
 mock.module("../src/config.ts", () => ({
   ...actualConfig,
-  batonArchiveDir: () => join(TEST_HOME, ".claude", "baton", "archive"),
+  batonArchiveDir: () => join(TEST_HOME, ".baton", "archive"),
 }));
 
 const { listArchives, showArchive, pruneArchives, recallArchives } = await import("../src/baton/archive-library.ts");
 
 beforeEach(() => {
   rmSync(join(TEST_HOME, ".claude"), { recursive: true, force: true });
+  rmSync(join(TEST_HOME, ".baton"), { recursive: true, force: true });
 });
 
 afterEach(() => {
   rmSync(join(TEST_HOME, ".claude"), { recursive: true, force: true });
+  rmSync(join(TEST_HOME, ".baton"), { recursive: true, force: true });
 });
 
 test("listArchives returns sorted entries and handles goal parsing correctly", () => {
-  const archiveDir = join(TEST_HOME, ".claude", "baton", "archive");
+  const archiveDir = join(TEST_HOME, ".baton", "archive");
   mkdirSync(archiveDir, { recursive: true });
 
   const f1 = "proj1-2025-01-01T12-00-00-000Z.md";
@@ -56,7 +58,7 @@ test("listArchives returns sorted entries and handles goal parsing correctly", (
 });
 
 test("showArchive works, throws on ambiguous prefix, throws on not found", () => {
-  const archiveDir = join(TEST_HOME, ".claude", "baton", "archive");
+  const archiveDir = join(TEST_HOME, ".baton", "archive");
   mkdirSync(archiveDir, { recursive: true });
 
   const f1 = "foo-2025-01-01T12-00-00-000Z.md";
@@ -79,7 +81,7 @@ test("showArchive works, throws on ambiguous prefix, throws on not found", () =>
 });
 
 test("pruneArchives --keep and --older-than-days and --dry-run", () => {
-  const archiveDir = join(TEST_HOME, ".claude", "baton", "archive");
+  const archiveDir = join(TEST_HOME, ".baton", "archive");
   mkdirSync(archiveDir, { recursive: true });
 
   // Add items with distinct dates. We will manually set their dates relative to now to test `olderThanDays`.
@@ -123,7 +125,7 @@ test("pruneArchives --keep and --older-than-days and --dry-run", () => {
 });
 
 test("recallArchives search matches text and returns correct lines", () => {
-  const archiveDir = join(TEST_HOME, ".claude", "baton", "archive");
+  const archiveDir = join(TEST_HOME, ".baton", "archive");
   mkdirSync(archiveDir, { recursive: true });
 
   const f1 = "proj-2025-01-01T12-00-00-000Z.md";
@@ -150,12 +152,12 @@ test("recallArchives search matches text and returns correct lines", () => {
 });
 
 test("listArchives returns empty array if archive dir does not exist", () => {
-  rmSync(join(TEST_HOME, ".claude", "baton", "archive"), { recursive: true, force: true });
+  rmSync(join(TEST_HOME, ".baton", "archive"), { recursive: true, force: true });
   expect(listArchives()).toEqual([]);
 });
 
 test("recallArchives ignores files larger than 1MB", () => {
-  const archiveDir = join(TEST_HOME, ".claude", "baton", "archive");
+  const archiveDir = join(TEST_HOME, ".baton", "archive");
   mkdirSync(archiveDir, { recursive: true });
 
   const f1 = "huge-2025-01-01T12-00-00-000Z.md";

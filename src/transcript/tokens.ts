@@ -1,4 +1,4 @@
-import { readLatestAssistantUsageEntry, readTranscript, isMainChain, type TranscriptEntry } from "./read.ts";
+import { readLatestAssistantUsageEntry, isMainChain, type TranscriptEntry } from "./read.ts";
 
 export interface TokenSnapshot {
   total: number;
@@ -19,9 +19,9 @@ export const EMPTY_SNAPSHOT: TokenSnapshot = {
 };
 
 /**
- * Context size = the token footprint of the most recent assistant message on the
- * main chain. Claude Code's usage field on each assistant turn reports the state
- * of the context at that point, so the latest one is what's currently loaded.
+ * Context size = the token footprint of the most recent usage-bearing entry on
+ * the main chain. Claude Code reports this on assistant turns; other hosts may
+ * report it as top-level usage/tokens. The latest one is what's currently loaded.
  * Summing across all entries would double-count cache hits.
  */
 export function snapshotFromTranscript(path: string): TokenSnapshot {
@@ -35,8 +35,7 @@ export function snapshotFromEntries(entries: TranscriptEntry[]): TokenSnapshot {
   for (let i = entries.length - 1; i >= 0; i--) {
     const e = entries[i];
     if (!e || !isMainChain(e)) continue;
-    if (e.message?.role !== "assistant") continue;
-    if (!e.message.usage) continue;
+    if (!usageFromEntry(e)) continue;
     last = { entry: e, idx: i };
     break;
   }
@@ -46,18 +45,23 @@ export function snapshotFromEntries(entries: TranscriptEntry[]): TokenSnapshot {
 }
 
 function snapshotFromAssistantEntry(entry: TranscriptEntry, lastAssistantIndex: number): TokenSnapshot {
-  const u = entry.message!.usage!;
-  const input = u.input_tokens ?? 0;
-  const output = u.output_tokens ?? 0;
-  const cacheRead = u.cache_read_input_tokens ?? 0;
+  const u = usageFromEntry(entry)!;
+  const input = u.input_tokens ?? u.prompt_tokens ?? u.prompt_token_count ?? 0;
+  const output = u.output_tokens ?? u.candidates_token_count ?? 0;
+  const cacheRead = u.cache_read_input_tokens ?? u.cached_input_tokens ?? 0;
   const cacheCreate = u.cache_creation_input_tokens ?? 0;
+  const total = u.total_tokens ?? input + cacheRead + cacheCreate;
 
   return {
-    total: input + cacheRead + cacheCreate,
+    total,
     input,
     output,
     cacheRead,
     cacheCreate,
     lastAssistantIndex,
   };
+}
+
+function usageFromEntry(entry: TranscriptEntry) {
+  return entry.message?.usage ?? entry.message?.tokens ?? entry.usage ?? entry.tokens;
 }

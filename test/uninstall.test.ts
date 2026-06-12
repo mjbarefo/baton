@@ -13,7 +13,7 @@ mock.module("../src/config.ts", () => ({
 }));
 
 const { install, uninstall } = await import("../src/install/settings-patch.ts");
-const { installManifestPath } = await import("../src/config.ts");
+const { installManifestPath, legacyInstallManifestPath } = await import("../src/config.ts");
 
 const CLAUDE_DIR = join(TEST_HOME, ".claude");
 const SETTINGS_PATH = join(CLAUDE_DIR, "settings.json");
@@ -28,10 +28,12 @@ const BATON_SKILL_PATH = join(BATON_SKILL_DIR, "SKILL.md");
 
 beforeEach(() => {
   rmSync(CLAUDE_DIR, { recursive: true, force: true });
+  rmSync(join(TEST_HOME, ".baton"), { recursive: true, force: true });
 });
 
 afterEach(() => {
   rmSync(CLAUDE_DIR, { recursive: true, force: true });
+  rmSync(join(TEST_HOME, ".baton"), { recursive: true, force: true });
 });
 
 test("reinstall-then-uninstall restores the ORIGINAL pre-baton settings, not a baton-polluted second backup", () => {
@@ -72,6 +74,27 @@ test("reinstall-then-uninstall restores the ORIGINAL pre-baton settings, not a b
   expect(restored.hooks.UserPromptSubmit).toBeUndefined();
   expect(restored.hooks.PreCompact).toBeUndefined();
   expect(restored.hooks.SessionStart).toBeUndefined();
+});
+
+test("uninstall reads a legacy Claude install manifest", () => {
+  mkdirSync(CLAUDE_DIR, { recursive: true });
+  const originalSettings = { hooks: { Stop: [{ hooks: [{ type: "command", command: "echo user-hook" }] }] } };
+  writeFileSync(SETTINGS_PATH, JSON.stringify(originalSettings, null, 2), "utf8");
+  const backupPath = `${SETTINGS_PATH}.legacy-backup`;
+  writeFileSync(backupPath, JSON.stringify(originalSettings, null, 2), "utf8");
+  mkdirSync(join(CLAUDE_DIR, "baton"), { recursive: true });
+  writeFileSync(
+    legacyInstallManifestPath(),
+    JSON.stringify({ installedAt: "2026-01-01T00:00:00.000Z", settingsBackupPath: backupPath }),
+    "utf8",
+  );
+  install();
+  rmSync(installManifestPath(), { force: true });
+
+  const report = uninstall();
+
+  expect(report.restoredSettingsFrom).toBe(backupPath);
+  expect(existsSync(legacyInstallManifestPath())).toBe(false);
 });
 
 test("uninstall skips a user-modified baton.md and surfaces it in the report", () => {
