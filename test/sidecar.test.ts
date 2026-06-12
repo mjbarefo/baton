@@ -214,11 +214,12 @@ describe("runSidecar", () => {
     expect(argv).toContain("--approval-mode");
     expect(argv[argv.indexOf("--approval-mode") + 1]).toBe("plan");
     expect(argv).not.toContain("--skip-trust");
-    const prompt = argv[argv.indexOf("--prompt") + 1] as string;
-    expect(prompt).toContain("reviewing another agent's working state");
-    expect(prompt).toContain("Do not modify files");
-    expect(prompt).toContain("Ship the sidecar feature");
-    expect(stderrCapture).toBe(`${prompt}\n`);
+    // The baton body travels on stdin (printed to stderr in dry-run), not argv.
+    const argvPrompt = argv[argv.indexOf("--prompt") + 1] as string;
+    expect(argvPrompt).toContain("stdin");
+    expect(stderrCapture).toContain("reviewing another agent's working state");
+    expect(stderrCapture).toContain("Do not modify files");
+    expect(stderrCapture).toContain("Ship the sidecar feature");
     expect(spawnCalls).toHaveLength(0);
   });
 
@@ -234,7 +235,7 @@ describe("runSidecar", () => {
     expect(spawnCalls).toHaveLength(0);
   });
 
-  test("with gemini on PATH, passes prompt in argv and cwd set", async () => {
+  test("with gemini on PATH, passes baton on stdin and cwd set", async () => {
     writeBaton(tmp);
     spawnExitCode = 9;
 
@@ -245,15 +246,17 @@ describe("runSidecar", () => {
     expect(spawnCalls[0]?.[0]).toBe("gemini");
     const argv = spawnCalls[0]?.[1] as string[];
     expect(argv[0]).toBe("--prompt");
-    expect(argv[1]).toContain("arguing against");
+    expect(argv[1]).toContain("stdin");
     expect(argv).toContain("--model");
     expect(argv[argv.indexOf("--model") + 1]).toBe("pro");
     expect(argv).toContain("--approval-mode");
     expect(argv[argv.indexOf("--approval-mode") + 1]).toBe("plan");
     expect(argv).not.toContain("--skip-trust");
-    expect(stdinWrites).toHaveLength(0);
+    // The composed prompt (preamble + redacted baton) goes to stdin, not argv.
+    expect(stdinWrites).toHaveLength(1);
+    expect(stdinWrites[0]).toContain("arguing against");
     expect(spawnCalls[0]?.[2]).toMatchObject({
-      stdio: "inherit",
+      stdio: ["pipe", "inherit", "inherit"],
       cwd: tmp,
     });
   });

@@ -48,7 +48,7 @@ bun run src/cli.ts install --host all  # install from source into supported host
   - `run.ts` — shared orchestration: finds and redacts the baton, picks the host adapter, spawns the subprocess, streams output. Exposes `runSidecar({ host, mode, cwd, dryRun })` and the `HostAdapter` interface.
   - `prompts.ts` — defines `SidecarMode` (`review` | `critique` | `alternative`), per-mode preambles, and `composePrompt()` which prepends the preamble to the redacted baton body.
   - `codex.ts` — `codexAdapter`: invokes `codex exec -c model_reasoning_effort=xhigh --sandbox read-only --ephemeral -`, sending the prompt on stdin.
-  - `gemini.ts` — `geminiAdapter`: invokes `gemini --prompt <prompt> --model pro --approval-mode plan` as argv (no stdin).
+  - `gemini.ts` — `geminiAdapter`: sends the baton body on stdin with a short `--prompt` instruction (`--model pro --approval-mode plan`); Gemini appends `--prompt` to stdin input in headless mode. Keeping the baton off argv avoids `ps` exposure and Windows command-line length limits.
 - `src/transcript/` — `read.ts` parses JSONL transcripts; `tokens.ts` extracts token snapshots from the latest assistant usage entry.
 - `src/install/settings-patch.ts` — installs host adapters. Claude patching remains idempotent (`~/.claude/settings.json`, slash commands, statusline, backups, migration). Codex writes a managed hook block to `~/.codex/config.toml` plus `~/.agents/skills/baton/SKILL.md`. Gemini writes `~/.gemini/extensions/baton` with commands, context, and `hooks/hooks.json`. Also exports multi-host `installHosts()`, `checkHosts()`, and `uninstallHosts()`.
 
