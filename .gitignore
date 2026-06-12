@@ -41,3 +41,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # Out-of-band working notes / task briefs (not shipped)
 .dev/
+
+# baton session snapshots (host-neutral and legacy paths)
+.baton/
+.claude/baton/

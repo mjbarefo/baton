@@ -103,7 +103,21 @@ export function redactSecrets(body: string, patterns: RedactPattern[]): { body: 
       if (pattern.redactCaptureGroup !== undefined) {
         const capture = args[pattern.redactCaptureGroup - 1];
         if (typeof capture === "string") {
-          return match.replace(capture, `[redacted ${pattern.label}]`);
+          // Splice by offset rather than match.replace(capture, ...), which
+          // replaces the first occurrence and corrupts the match when the
+          // secret string also appears in the prefix groups. Assumes groups
+          // 1..N-1 are contiguous from the start of the match, which holds
+          // for all (prefix)(secret)(suffix)-shaped patterns.
+          let offset = 0;
+          for (let g = 1; g < pattern.redactCaptureGroup; g++) {
+            const part = args[g - 1];
+            if (typeof part === "string") offset += part.length;
+          }
+          if (match.startsWith(capture, offset)) {
+            return match.slice(0, offset) + `[redacted ${pattern.label}]` + match.slice(offset + capture.length);
+          }
+          // Group layout didn't match the assumption — redact the whole match
+          // rather than risk leaving the secret in place.
         }
       }
 

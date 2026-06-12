@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { join } from "node:path";
 import { renderBar } from "./bar.ts";
@@ -43,15 +43,8 @@ interface StatusJSON {
 const DEFAULT_MAX = 200_000;
 const SEP_TEXT = " │ ";
 
-interface GitCache {
-  dir: string;
-  headMtimeMs: number;
-  indexMtimeMs: number;
-  branch?: string;
-  dirty: boolean;
-}
-let cachedGit: GitCache | null = null;
-
+// The statusline runs as a one-shot process per render, so module-level caches
+// never survive between renders — don't add any here.
 function findGitDir(start: string): string | null {
   let dir = start;
   for (let i = 0; i < 20; i++) {
@@ -67,21 +60,7 @@ function findGitDir(start: string): string | null {
 function gitBranchInfo(cwd: string | undefined): { branch?: string; dirty?: boolean } {
   const dir = cwd || process.cwd();
   try {
-    const gitDir = findGitDir(dir);
-    if (!gitDir) return {};
-
-    let headMtimeMs = 0;
-    let indexMtimeMs = 0;
-    try { headMtimeMs = statSync(join(gitDir, "HEAD")).mtimeMs; } catch { return {}; }
-    try { indexMtimeMs = statSync(join(gitDir, "index")).mtimeMs; } catch { /* fresh repo, no index yet */ }
-
-    if (
-      cachedGit?.dir === dir &&
-      cachedGit.headMtimeMs === headMtimeMs &&
-      cachedGit.indexMtimeMs === indexMtimeMs
-    ) {
-      return { branch: cachedGit.branch, dirty: cachedGit.dirty };
-    }
+    if (!findGitDir(dir)) return {};
 
     let branch: string | undefined;
     try {
@@ -95,13 +74,11 @@ function gitBranchInfo(cwd: string | undefined): { branch?: string; dirty?: bool
         .toString().trim().length > 0;
     } catch { /* ignore */ }
 
-    cachedGit = { dir, headMtimeMs, indexMtimeMs, branch, dirty };
     return { branch, dirty };
   } catch {
     return {};
   }
 }
-let cachedSnapshot: { path: string; mtimeMs: number; total: number } | null = null;
 
 /**
  * Persist the session's context window size, 5h rate-limit usage, and model id
@@ -136,13 +113,7 @@ function persistStateSnapshot(
 
 function tokenTotalFromTranscript(path: string): number {
   try {
-    const mtimeMs = statSync(path).mtimeMs;
-    if (cachedSnapshot?.path === path && cachedSnapshot.mtimeMs === mtimeMs) {
-      return cachedSnapshot.total;
-    }
-    const total = snapshotFromTranscript(path).total;
-    cachedSnapshot = { path, mtimeMs, total };
-    return total;
+    return snapshotFromTranscript(path).total;
   } catch {
     return 0;
   }

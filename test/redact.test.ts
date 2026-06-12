@@ -98,6 +98,18 @@ describe("redact", () => {
     expect(res.hits).toEqual([]);
   });
 
+  test("capture-group redaction targets the group's position, not the first occurrence", () => {
+    // The secret string also appears in the prefix group. match.replace(capture, ...)
+    // would redact the prefix occurrence and leave the actual secret intact.
+    const pattern = {
+      regex: /(echo abc1234567890 then KEY=)(abc1234567890)/g,
+      label: "positional secret",
+      redactCaptureGroup: 2,
+    };
+    const res = redact("echo abc1234567890 then KEY=abc1234567890", [pattern]);
+    expect(res.body).toBe("echo abc1234567890 then KEY=[redacted positional secret]");
+  });
+
   test("respects BATON_NO_REDACT escape hatch", async () => {
     process.env.BATON_NO_REDACT = "1";
     const freshModule = await import(`../src/baton/redact.ts?escape=${crypto.randomUUID()}`);
