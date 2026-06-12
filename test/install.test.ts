@@ -97,6 +97,25 @@ test("install writes the /baton-gemini slash command pointing at sidecar gemini"
   expect(body).toMatch(/bun run "[^"]+cli\.ts" sidecar gemini --mode/);
 });
 
+test("install writes the /baton-agent slash command with a self-locating redact command", () => {
+  const report = install();
+
+  expect(report.wroteBatonAgentCommand).toBe(true);
+  expect(report.batonAgentCommandPath).toMatch(/baton-agent\.md$/);
+
+  const body = readFileSync(report.batonAgentCommandPath, "utf8");
+  expect(body).toContain("name: baton-agent");
+  expect(body).toContain('isolation: "worktree"');
+  expect(body).toMatch(/bun run "[^"]+cli\.ts" redact/);
+  expect(body).not.toContain("`baton redact`");
+  expect(body).not.toContain("BATON_FRESH_MS");
+  expect(body).not.toContain("mtime");
+  expect(body).toContain("Does this scope look right?");
+  expect(body).toContain("Do not attempt to specify a branch name");
+  expect(body).toContain("Changes are on branch");
+  expect(body).toContain("git diff <default-branch>...<branch-from-result>");
+});
+
 test("source-mode hook commands are self-locating bun invocations", () => {
   install();
 

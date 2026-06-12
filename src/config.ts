@@ -139,6 +139,10 @@ export function userBatonGeminiCommandPath(): string {
   return join(userCommandsDir(), "baton-gemini.md");
 }
 
+export function userBatonAgentCommandPath(): string {
+  return join(userCommandsDir(), "baton-agent.md");
+}
+
 export function userSkillsDir(): string {
   return join(userClaudeDir(), "skills");
 }
