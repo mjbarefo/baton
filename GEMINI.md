@@ -41,7 +41,7 @@ The project is structured into modular components:
 - **`src/hooks/`**: Implements hook handlers used by host adapters:
     - `session-start.ts`: On `/clear` or resume, reads `BATON.md`, injects it as `additionalContext`, then archives it so the resume is one-shot.
     - `user-prompt-submit.ts`: Nudges the user/model to snapshot when context crosses soft/hard thresholds. At the hard threshold, injects the full baton protocol. Also fires a time-based nudge when session age ≥ 5 hours with ≥ 30k tokens in context, at most once per session.
-    - `pre-compact.ts`: Intercepts auto-compaction. If a fresh baton exists, blocks. Otherwise writes a fallback baton from the transcript, then blocks. Never returns `"allow"`.
+    - `pre-compact.ts`: Intercepts auto-compaction. If a fresh baton exists, blocks. Otherwise writes a fallback baton from the transcript, then blocks. After `MAX_COMPACT_BLOCKS` consecutive blocked attempts (default 3, env `BATON_MAX_COMPACT_BLOCKS`), allows compaction so an unattended session degrades gracefully instead of hitting context-limit errors.
 - **`src/statusline/`**: Logic for rendering the compact Claude Code status bar. `render.ts` orchestrates widgets; `widgets.ts` has individual renderers (model, branch, baton badge, rate limit, duration, cost); `bar.ts` draws the context gauge; `color.ts` wraps ANSI codes.
 - **`src/baton/`**: Core lifecycle modules:
     - `archive.ts`: Move a baton to a timestamped archive.
@@ -57,11 +57,12 @@ The project is structured into modular components:
     - `status.ts`: Project baton status and latest archive summary.
     - `template-loader.ts`: Reads the `/baton` command template (`src/baton/template.md`).
     - `validate.ts`: Deterministic baton quality checks and redaction scan.
+    - `redact-cmd.ts`: `redact` subcommand: print the nearest BATON.md with secrets stripped.
 - **`src/install/settings-patch.ts`**: Host adapter installation. Claude patching remains idempotent; Codex writes a managed hook block and skill; Gemini writes an extension, TOML commands, context, and lifecycle hooks. Also exports single-host and multi-host check/uninstall helpers.
 - **`src/sidecar/`**: Headless second-opinion runners for Codex and Gemini:
     - `run.ts`: Shared orchestration — finds `BATON.md`, redacts secrets, composes the prompt, checks that the binary is on PATH, and spawns the child process.
     - `prompts.ts`: Defines the three modes (`review`, `critique`, `alternative`) and their preambles. `composePrompt()` always appends a guard against file writes or shell execution.
-    - `gemini.ts`: Gemini-specific `HostAdapter` — invokes `gemini --prompt <prompt> --model pro --approval-mode plan`.
+    - `gemini.ts`: Gemini-specific `HostAdapter` — sends the baton body on stdin with a short `--prompt` instruction (`--model pro --approval-mode plan`); Gemini appends `--prompt` to stdin input in headless mode. Keeping the baton off argv avoids `ps` exposure and Windows command-line length limits.
     - `codex.ts`: Codex-specific `HostAdapter` — invokes `codex exec` with `--sandbox read-only --ephemeral`, passing the prompt on stdin.
 - **`src/transcript/`**: Utilities for parsing JSONL transcript/token usage shapes (`read.ts`, `tokens.ts`), including Claude-style message usage and broader Codex/Gemini-style top-level usage fields.
 
@@ -78,7 +79,7 @@ The `/baton-gemini` and `/baton-codex` commands installed into `~/.claude/` foll
 
 ### Coding Style & Patterns
 - **Non-Interactive CLI**: All subcommands read from `stdin` or CLI arguments; none are interactive.
-- **Output**: Prefer `process.stdout.write` and `process.stderr.write` over `console.log` for precise control.
+- **Output**: Use `process.stdout.write` and `process.stderr.write`, never `console.*`. Hook stdout is parsed as protocol (JSON decisions, `additionalContext`), so a stray `console.log` corrupts it; explicit streams keep the stdout/stderr split unambiguous and give exact control over bytes and newlines. Human-facing messages and warnings go to stderr.
 - **Self-Locating Commands**: `buildCommand()` in `src/config.ts` ensures hooks use absolute paths regardless of invocation context.
 - **Idempotency**: Installation and patching logic must be safe to run repeatedly.
 - **Sidecars are read-only**: Codex uses `--sandbox read-only --ephemeral`; Gemini uses `--approval-mode plan`. The prompt also explicitly instructs the sidecar not to modify files, run shell commands, or exit plan mode. Do not add write-capable sidecar behavior without explicit product intent and tests.
@@ -92,7 +93,11 @@ The `/baton-gemini` and `/baton-codex` commands installed into `~/.claude/` foll
 
 ### Design Decisions
 - **Token Counting**: Only the most recent main-chain assistant message's `usage` field is used. Summing all entries would double-count cached tokens.
-- **PreCompact Blocking**: The `PreCompact` hook always returns `{ decision: "block" }` — either because a fresh baton exists, or after writing a fallback from the transcript.
+- **PreCompact Blocking**: The `PreCompact` hook returns `{ decision: "block" }` when a fresh baton exists or after writing a fallback. After `MAX_COMPACT_BLOCKS` consecutive blocked attempts (default 3, env `BATON_MAX_COMPACT_BLOCKS`), it returns empty output to allow compaction — so an unattended session degrades to normal auto-compact instead of context-limit errors.
 - **Freshness window**: `BATON_FRESH_MS` (default 10 min, configurable via env) gates whether `SessionStart` injects and whether `PreCompact` considers an existing baton fresh enough.
 - **State normalization**: The statusline writes `{ maxTokens }` to the per-session state file without a `level` field. `readState()` in `user-prompt-submit.ts` normalizes missing or invalid `level` values to `"none"` — without this, the soft nudge silently skips and users jump straight to the hard-stop.
 - **Redaction**: Applied to baton content before any sidecar invocation and to auto-generated fallback batons, to prevent accidental leakage of secrets (API keys, tokens, etc.).
+- **Hard-nudge re-arm**: The hard nudge injects the full baton protocol once, but if the model doesn't act on it the session stays pinned at hard with no further signal. The hook counts prompts at hard (`promptsAtHard` in session state) and re-injects every `HARD_NUDGE_REARM_PROMPTS` (default 5, env `BATON_HARD_NUDGE_REARM_PROMPTS`).
+- **Per-model nudge thresholds**: `nudgeThresholdsForModel()` in `config.ts` scales `NUDGE_SOFT`/`NUDGE_HARD` down for Sonnet (0.50/0.55) and Haiku (0.45/0.50), whose long-context quality degrades earlier. `BATON_NUDGE_SOFT`/`BATON_NUDGE_HARD` env vars override per-model scaling.
+- **Canonical path with legacy read**: New writes use `.baton/BATON.md`; lookup also reads legacy `.claude/baton/BATON.md` for compatibility.
+- **Sidecar host adapter pattern**: `run.ts` defines a `HostAdapter` interface (`binaryName`, `installHint`, `buildInvocation`). Adding a new host requires only a new adapter file and a branch in `pickAdapter()` — no changes to shared orchestration.

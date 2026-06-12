@@ -500,7 +500,7 @@ function warnIfBunMissing(): void {
   if (!buildCommand("help").startsWith("bun run ")) return;
   const bunCheck = spawnSync("bun", ["--version"], { stdio: "pipe" });
   if (bunCheck.error || bunCheck.status !== 0) {
-    console.warn("Warning: 'bun' not found on PATH. Source-mode hooks will fail until Bun is installed.");
+    process.stderr.write("Warning: 'bun' not found on PATH. Source-mode hooks will fail until Bun is installed.\n");
   }
 }
 

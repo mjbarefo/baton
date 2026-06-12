@@ -15,6 +15,10 @@ import { geminiAdapter } from "./gemini.ts";
 
 export type SidecarHost = "codex" | "gemini";
 
+export function isSidecarHost(value: unknown): value is SidecarHost {
+  return value === "codex" || value === "gemini";
+}
+
 export interface HostAdapter {
   binaryName: string;
   installHint: string;
@@ -42,6 +46,10 @@ function isOnPath(bin: string): boolean {
 
 
 export async function runSidecar(opts: SidecarOptions): Promise<number> {
+  if (!isSidecarHost(opts.host)) {
+    process.stderr.write(`baton sidecar: unknown host "${String(opts.host)}" (expected codex|gemini)\n`);
+    return 2;
+  }
   if (!isSidecarMode(opts.mode)) {
     process.stderr.write(
       `baton sidecar: invalid mode "${String(opts.mode)}" (expected review|critique|alternative)\n`,
@@ -72,22 +80,9 @@ export async function runSidecar(opts: SidecarOptions): Promise<number> {
     );
   }
 
-  let adapter: HostAdapter;
-  try {
-    adapter = pickAdapter(opts.host);
-  } catch (err: any) {
-    process.stderr.write(`${err.message ?? String(err)}\n`);
-    return 2;
-  }
-
+  const adapter = pickAdapter(opts.host);
   const prompt = composePrompt(opts.mode, redactedBody);
-  let invocation: { argv: string[]; stdin?: string };
-  try {
-    invocation = adapter.buildInvocation(prompt);
-  } catch (err: any) {
-    process.stderr.write(`${err.message ?? String(err)}\n`);
-    return 2;
-  }
+  const invocation = adapter.buildInvocation(prompt);
 
   if (opts.dryRun) {
     process.stdout.write(JSON.stringify([adapter.binaryName, ...invocation.argv]) + "\n");

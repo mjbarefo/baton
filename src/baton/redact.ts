@@ -57,8 +57,8 @@ function parseIgnoreFile(path: string): RedactPattern[] {
         regex: new RegExp(regexStr, "g"),
         label,
       });
-    } catch (err: any) {
-      process.stderr.write(`baton: warning: invalid regex in ${path}:${i + 1}: ${err.message}\n`);
+    } catch (err) {
+      process.stderr.write(`baton: warning: invalid regex in ${path}:${i + 1}: ${(err as Error).message}\n`);
     }
   }
 
