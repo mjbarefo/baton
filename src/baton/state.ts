@@ -7,6 +7,12 @@ export interface BatonState {
   rateLimit5hPct?: number;
   /** Consecutive auto-compact attempts blocked this session (PreCompact escape hatch). */
   compactBlocks?: number;
+  /** Model id persisted by the statusline; used for per-model nudge thresholds. */
+  modelId?: string;
+}
+
+export function normalizeModelId(raw: unknown): string | undefined {
+  return typeof raw === "string" && raw.trim() !== "" ? raw : undefined;
 }
 
 export function normalizeCompactBlocks(raw: unknown): number {

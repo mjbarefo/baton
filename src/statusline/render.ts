@@ -103,33 +103,19 @@ function gitBranchInfo(cwd: string | undefined): { branch?: string; dirty?: bool
 }
 let cachedSnapshot: { path: string; mtimeMs: number; total: number } | null = null;
 
-// Cache the last state-file write so we skip I/O when nothing changed.
-let lastPersistedSnapshot: {
-  sessionId: string;
-  maxTokens: number | undefined;
-  rateLimit5hPct: number | undefined;
-} | null = null;
-
 /**
- * Persist the session's context window size and 5h rate-limit usage to the
- * shared state file so the UserPromptSubmit hook can read them. Uses
- * read-merge-write to preserve other fields (e.g. nudge level). Either field
+ * Persist the session's context window size, 5h rate-limit usage, and model id
+ * to the shared state file so the UserPromptSubmit hook can read them. Uses
+ * read-merge-write to preserve other fields (e.g. nudge level). Any field
  * may be undefined; undefined is NOT written, so a partial payload preserves
  * the last known value rather than wiping it.
  */
 function persistStateSnapshot(
   sessionId: string,
-  snapshot: { maxTokens?: number; rateLimit5hPct?: number },
+  snapshot: { maxTokens?: number; rateLimit5hPct?: number; modelId?: string },
 ): void {
-  const { maxTokens, rateLimit5hPct } = snapshot;
-  if (maxTokens === undefined && rateLimit5hPct === undefined) return;
-  if (
-    lastPersistedSnapshot?.sessionId === sessionId &&
-    lastPersistedSnapshot.maxTokens === maxTokens &&
-    lastPersistedSnapshot.rateLimit5hPct === rateLimit5hPct
-  ) {
-    return;
-  }
+  const { maxTokens, rateLimit5hPct, modelId } = snapshot;
+  if (maxTokens === undefined && rateLimit5hPct === undefined && modelId === undefined) return;
   try {
     const stateDir = batonStateDir();
     const statePath = join(stateDir, `${sessionId}.json`);
@@ -143,15 +129,8 @@ function persistStateSnapshot(
     const merged: Record<string, unknown> = { ...existing };
     if (maxTokens !== undefined) merged.maxTokens = maxTokens;
     if (rateLimit5hPct !== undefined) merged.rateLimit5hPct = rateLimit5hPct;
+    if (modelId !== undefined) merged.modelId = modelId;
     writeFileSync(statePath, JSON.stringify(merged));
-    // Only carry forward prior-cache values within the same session; a different
-    // sessionId's values are unrelated and would poison later dedup comparisons.
-    const carry = lastPersistedSnapshot?.sessionId === sessionId ? lastPersistedSnapshot : null;
-    lastPersistedSnapshot = {
-      sessionId,
-      maxTokens: maxTokens ?? carry?.maxTokens,
-      rateLimit5hPct: rateLimit5hPct ?? carry?.rateLimit5hPct,
-    };
   } catch { /* never crash the statusline */ }
 }
 
@@ -191,6 +170,7 @@ export async function renderStatusline(raw: string): Promise<string> {
     persistStateSnapshot(data.session_id, {
       maxTokens: payloadMax,
       rateLimit5hPct,
+      modelId: data.model?.id || data.model?.display_name,
     });
   }
 

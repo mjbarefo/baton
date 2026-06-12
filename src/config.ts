@@ -18,8 +18,53 @@ export const THRESHOLDS = {
   NUDGE_HARD: 0.60,  // was 120k on 200k window
 } as const;
 
-/** Nudge toward /baton after a session has been open this long (5 hours). */
-export const SESSION_AGE_NUDGE_MS = 5 * 60 * 60 * 1000;
+function _envRatio(name: string): number | undefined {
+  const raw = process.env[name];
+  if (raw === undefined) return undefined;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0 || n >= 1) {
+    process.stderr.write(`baton: ${name}="${raw}" must be a ratio strictly between 0 and 1 — ignoring\n`);
+    return undefined;
+  }
+  return n;
+}
+const _envNudgeSoft = _envRatio("BATON_NUDGE_SOFT");
+const _envNudgeHard = _envRatio("BATON_NUDGE_HARD");
+
+// Models with weaker long-context robustness get nudged earlier: their output
+// quality degrades well before the window fills, so waiting for the flat
+// thresholds wastes the best part of the session.
+const MODEL_THRESHOLD_OVERRIDES: Array<{ match: RegExp; soft: number; hard: number }> = [
+  { match: /haiku/i, soft: 0.45, hard: 0.50 },
+  { match: /sonnet/i, soft: 0.50, hard: 0.55 },
+];
+
+/**
+ * Soft/hard nudge thresholds (ratios of the context window) for a model.
+ * Per-model defaults can be overridden globally via BATON_NUDGE_SOFT /
+ * BATON_NUDGE_HARD; an explicit env setting wins over model scaling.
+ */
+export function nudgeThresholdsForModel(modelId?: string): { soft: number; hard: number } {
+  let soft: number = THRESHOLDS.NUDGE_SOFT;
+  let hard: number = THRESHOLDS.NUDGE_HARD;
+  if (modelId) {
+    const override = MODEL_THRESHOLD_OVERRIDES.find((o) => o.match.test(modelId));
+    if (override) {
+      soft = override.soft;
+      hard = override.hard;
+    }
+  }
+  return { soft: _envNudgeSoft ?? soft, hard: _envNudgeHard ?? hard };
+}
+
+/** Nudge toward /baton after a session has been open this long (default 5 hours). */
+const _SESSION_AGE_NUDGE_MS_DEFAULT = 5 * 60 * 60 * 1000;
+const _sessionAgeRaw = Number(process.env.SESSION_AGE_NUDGE_MS ?? _SESSION_AGE_NUDGE_MS_DEFAULT);
+const _sessionAgeValid = Number.isFinite(_sessionAgeRaw) && _sessionAgeRaw > 0;
+if (process.env.SESSION_AGE_NUDGE_MS !== undefined && !_sessionAgeValid) {
+  process.stderr.write(`baton: SESSION_AGE_NUDGE_MS="${process.env.SESSION_AGE_NUDGE_MS}" must be a positive number — using default ${_SESSION_AGE_NUDGE_MS_DEFAULT}ms\n`);
+}
+export const SESSION_AGE_NUDGE_MS = _sessionAgeValid ? _sessionAgeRaw : _SESSION_AGE_NUDGE_MS_DEFAULT;
 /** Minimum token count for the age nudge to fire (skip trivial sessions). */
 export const SESSION_AGE_NUDGE_MIN_TOKENS = 30_000;
 

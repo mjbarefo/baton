@@ -2,6 +2,7 @@ import { expect, test, describe } from "bun:test";
 import {
   cliPath,
   buildCommand,
+  nudgeThresholdsForModel,
   SESSION_AGE_NUDGE_MS,
   SESSION_AGE_NUDGE_MIN_TOKENS,
   THRESHOLDS,
@@ -54,5 +55,42 @@ describe("THRESHOLDS ordering", () => {
 
   test("GREEN_MAX is below NUDGE_SOFT", () => {
     expect(THRESHOLDS.GREEN_MAX).toBeLessThan(THRESHOLDS.NUDGE_SOFT);
+  });
+});
+
+describe("nudgeThresholdsForModel", () => {
+  test("unknown or missing model uses flat defaults", () => {
+    expect(nudgeThresholdsForModel(undefined)).toEqual({
+      soft: THRESHOLDS.NUDGE_SOFT,
+      hard: THRESHOLDS.NUDGE_HARD,
+    });
+    expect(nudgeThresholdsForModel("claude-opus-4-8")).toEqual({
+      soft: THRESHOLDS.NUDGE_SOFT,
+      hard: THRESHOLDS.NUDGE_HARD,
+    });
+  });
+
+  test("sonnet nudges earlier than the defaults", () => {
+    const t = nudgeThresholdsForModel("claude-sonnet-4-6");
+    expect(t.soft).toBeLessThan(THRESHOLDS.NUDGE_SOFT);
+    expect(t.hard).toBeLessThan(THRESHOLDS.NUDGE_HARD);
+  });
+
+  test("haiku nudges earlier than sonnet", () => {
+    const sonnet = nudgeThresholdsForModel("claude-sonnet-4-6");
+    const haiku = nudgeThresholdsForModel("claude-haiku-4-5-20251001");
+    expect(haiku.soft).toBeLessThan(sonnet.soft);
+    expect(haiku.hard).toBeLessThan(sonnet.hard);
+  });
+
+  test("matches display names as well as ids", () => {
+    expect(nudgeThresholdsForModel("Sonnet 4.6").soft).toBeLessThan(THRESHOLDS.NUDGE_SOFT);
+  });
+
+  test("soft stays below hard for every model tier", () => {
+    for (const id of [undefined, "claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"]) {
+      const t = nudgeThresholdsForModel(id);
+      expect(t.soft).toBeLessThan(t.hard);
+    }
   });
 });

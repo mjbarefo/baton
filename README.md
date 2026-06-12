@@ -126,6 +126,18 @@ BATON_FRESH_MS=1800000 claude
 SESSION_AGE_NUDGE_MS=10800000 claude
 ```
 
+### Nudge thresholds
+
+The soft and hard nudges fire at ratios of the model's context window. Defaults are 0.55 (soft) and 0.60 (hard), but models with weaker long-context robustness are nudged earlier: Sonnet at 0.50/0.55, Haiku at 0.45/0.50. The model is detected automatically from the statusline payload.
+
+`BATON_NUDGE_SOFT` and `BATON_NUDGE_HARD` override the ratios globally (a value strictly between 0 and 1); an explicit env setting wins over per-model scaling:
+
+```bash
+BATON_NUDGE_SOFT=0.45 BATON_NUDGE_HARD=0.50 claude
+```
+
+`BATON_MAX_COMPACT_BLOCKS` controls the PreCompact escape hatch: after this many consecutive blocked auto-compact attempts in one session (default 3), baton stops intercepting and lets auto-compact run rather than risking context-limit errors.
+
 ### Custom baton template
 
 Create `~/.baton/template.md` to override the default baton skeleton. The legacy `~/.claude/baton-template.md` path is still read for compatibility.

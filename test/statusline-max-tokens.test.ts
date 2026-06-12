@@ -56,6 +56,16 @@ describe("renderStatusline — context_window_size persistence", () => {
     expect(state.maxTokens).toBe(128_000);
   });
 
+  test("persists model id for per-model nudge thresholds", async () => {
+    await renderStatusline(statusPayload({
+      session_id: "persist-model",
+      model: { id: "claude-sonnet-4-6", display_name: "Sonnet 4.6" },
+    }));
+
+    const state = JSON.parse(readFileSync(join(STATE_DIR, "persist-model.json"), "utf8"));
+    expect(state.modelId).toBe("claude-sonnet-4-6");
+  });
+
   test("does not write state file when payload has no session_id", async () => {
     await renderStatusline(
       JSON.stringify({ context_window: ctxWindow(50_000, 128_000) }),
@@ -73,46 +83,40 @@ describe("renderStatusline — context_window_size persistence", () => {
     expect(existsSync(join(STATE_DIR, "no-max.json"))).toBe(false);
   });
 
-  test("in-memory cache skips redundant writes for same session + max", async () => {
-    const sessionId = "cache-test";
+  test("a corrupt state file is replaced on the next render (no stale in-memory cache)", async () => {
+    // The statusline runs as a one-shot process per render, so there is no
+    // cross-render cache: every render with persistable fields writes the file.
+    // A corrupt file is therefore self-healing.
+    const sessionId = "rewrite-test";
     await renderStatusline(statusPayload({ session_id: sessionId, context_window: ctxWindow(10_000, 128_000) }));
 
-    // Corrupt the file — if cache is working, the second render won't overwrite it.
     const statePath = join(STATE_DIR, `${sessionId}.json`);
     writeFileSync(statePath, "CORRUPTED");
 
     await renderStatusline(statusPayload({ session_id: sessionId, context_window: ctxWindow(20_000, 128_000) }));
 
-    expect(readFileSync(statePath, "utf8")).toBe("CORRUPTED");
+    const state = JSON.parse(readFileSync(statePath, "utf8"));
+    expect(state.maxTokens).toBe(128_000);
   });
 
-  test("cache does not inherit rateLimit5hPct from a prior session", async () => {
-    // Prime the cache with sessionA that has a rateLimit5hPct.
+  test("rateLimit5hPct from one session does not leak into another", async () => {
     await renderStatusline(JSON.stringify({
       session_id: "session-A",
       context_window: ctxWindow(10_000, 128_000),
       rate_limits: { five_hour: { used_percentage: 77 } },
     }));
 
-    // Switch to sessionB with no rate_limits. If the cache leaks 77 from
-    // sessionA, the next identical call will miss the cache and re-write.
     await renderStatusline(statusPayload({
       session_id: "session-B",
       context_window: ctxWindow(10_000, 128_000),
     }));
 
-    const statePath = join(STATE_DIR, "session-B.json");
-    writeFileSync(statePath, "CORRUPTED");
-
-    await renderStatusline(statusPayload({
-      session_id: "session-B",
-      context_window: ctxWindow(10_000, 128_000),
-    }));
-
-    expect(readFileSync(statePath, "utf8")).toBe("CORRUPTED");
+    const stateB = JSON.parse(readFileSync(join(STATE_DIR, "session-B.json"), "utf8"));
+    expect(stateB.rateLimit5hPct).toBeUndefined();
+    expect(stateB.maxTokens).toBe(128_000);
   });
 
-  test("different context_window_size busts the in-memory cache and re-writes", async () => {
+  test("different context_window_size re-writes the state file", async () => {
     const sessionId = "cache-bust";
     await renderStatusline(statusPayload({ session_id: sessionId, context_window: ctxWindow(10_000, 128_000) }));
     await renderStatusline(statusPayload({ session_id: sessionId, context_window: ctxWindow(10_000, 200_000) }));

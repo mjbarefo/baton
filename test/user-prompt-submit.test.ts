@@ -129,6 +129,40 @@ describe("runUserPromptSubmitHook — level transitions", () => {
   });
 });
 
+describe("runUserPromptSubmitHook — per-model thresholds", () => {
+  test("sonnet soft nudge fires below the flat NUDGE_SOFT threshold", async () => {
+    // 105k/200k = 0.525: above sonnet's 0.50 soft threshold, below the flat 0.55.
+    writeStateFile("model-sonnet-soft", { level: "none", maxTokens: 200_000, modelId: "claude-sonnet-4-6" });
+    const transcript = writeTranscript(105_000);
+    await runUserPromptSubmitHook(
+      JSON.stringify({ session_id: "model-sonnet-soft", transcript_path: transcript, cwd: tmp }),
+    );
+    const out = JSON.parse(stdoutCapture);
+    expect(out.hookSpecificOutput.additionalContext).toContain("[baton]");
+    expect(out.hookSpecificOutput.additionalContext).not.toContain("CRITICAL");
+  });
+
+  test("same token count without a model id stays quiet", async () => {
+    writeStateFile("model-none-soft", { level: "none", maxTokens: 200_000 });
+    const transcript = writeTranscript(105_000);
+    await runUserPromptSubmitHook(
+      JSON.stringify({ session_id: "model-none-soft", transcript_path: transcript, cwd: tmp }),
+    );
+    expect(stdoutCapture).toBe("");
+  });
+
+  test("sonnet hard nudge fires at its scaled threshold", async () => {
+    // 112k/200k = 0.56: above sonnet's 0.55 hard threshold, below the flat 0.60.
+    writeStateFile("model-sonnet-hard", { level: "soft", maxTokens: 200_000, modelId: "claude-sonnet-4-6" });
+    const transcript = writeTranscript(112_000);
+    await runUserPromptSubmitHook(
+      JSON.stringify({ session_id: "model-sonnet-hard", transcript_path: transcript, cwd: tmp }),
+    );
+    const out = JSON.parse(stdoutCapture);
+    expect(out.hookSpecificOutput.additionalContext).toContain("CRITICAL");
+  });
+});
+
 describe("runUserPromptSubmitHook — state normalization regression", () => {
   test("soft nudge fires when state file has only maxTokens (no level field)", async () => {
     // Reproduces the bug: statusline writes { maxTokens } before any hook has set level.

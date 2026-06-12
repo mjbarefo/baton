@@ -7,12 +7,12 @@ import {
   batonStateDir,
   legacyBatonStateDir,
   NUDGE_HARD_UNDER_RATE_PRESSURE,
+  nudgeThresholdsForModel,
   RATE_LIMIT_ELEVATED_PCT,
   SESSION_AGE_NUDGE_MIN_TOKENS,
   SESSION_AGE_NUDGE_MS,
-  THRESHOLDS,
 } from "../config.ts";
-import { normalizeLevel, normalizeMaxTokens, normalizeRateLimit5hPct } from "../baton/state.ts";
+import { normalizeLevel, normalizeMaxTokens, normalizeModelId, normalizeRateLimit5hPct } from "../baton/state.ts";
 import type { BatonState, NudgeLevel } from "../baton/state.ts";
 
 interface HookPayload {
@@ -31,15 +31,20 @@ function levelFor(
   tokens: number,
   maxTokens: number,
   rateLimit5hPct: number | undefined,
+  modelId: string | undefined,
 ): { level: NudgeLevel; reason: NudgeReason } {
-  const hardByTokens = tokens >= Math.floor(THRESHOLDS.NUDGE_HARD * maxTokens);
+  // Smaller models (Sonnet, Haiku) get earlier thresholds — their long-context
+  // quality degrades before the window fills. modelId comes from the statusline
+  // via the state file; unknown models use the flat defaults.
+  const { soft, hard } = nudgeThresholdsForModel(modelId);
+  const hardByTokens = tokens >= Math.floor(hard * maxTokens);
   if (hardByTokens) return { level: "hard", reason: "tokens" };
   const elevatedHard =
     rateLimit5hPct !== undefined &&
     rateLimit5hPct >= RATE_LIMIT_ELEVATED_PCT &&
     tokens >= Math.floor(NUDGE_HARD_UNDER_RATE_PRESSURE * maxTokens);
   if (elevatedHard) return { level: "hard", reason: "rate-limit" };
-  if (tokens >= Math.floor(THRESHOLDS.NUDGE_SOFT * maxTokens)) {
+  if (tokens >= Math.floor(soft * maxTokens)) {
     return { level: "soft", reason: "tokens" };
   }
   return { level: "none", reason: null };
@@ -56,7 +61,8 @@ function readState(path: string): BatonState {
     // that would cause levelFor to over-fire (0 → always hard) or never fire (NaN).
     const maxTokens = normalizeMaxTokens(parsed.maxTokens);
     const rateLimit5hPct = normalizeRateLimit5hPct(parsed.rateLimit5hPct);
-    return { ...parsed, level, maxTokens, rateLimit5hPct };
+    const modelId = normalizeModelId(parsed.modelId);
+    return { ...parsed, level, maxTokens, rateLimit5hPct, modelId };
   } catch {
     return { level: "none" };
   }
@@ -128,7 +134,7 @@ export async function runUserPromptSubmitHook(raw: string): Promise<void> {
   const maxTokens = prior.maxTokens ?? DEFAULT_MAX_TOKENS;
 
   // --- Token / rate-limit nudge ---
-  const { level: tokenLevel, reason } = levelFor(snap.total, maxTokens, prior.rateLimit5hPct);
+  const { level: tokenLevel, reason } = levelFor(snap.total, maxTokens, prior.rateLimit5hPct, prior.modelId);
   const tokenNudgeShouldFire =
     (tokenLevel === "soft" && prior.level === "none") ||
     (tokenLevel === "hard" && prior.level !== "hard");
