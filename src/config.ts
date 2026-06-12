@@ -45,6 +45,18 @@ export const BATON_HOOK_TIMEOUT_S = _batonHookTimeoutValid
   ? Math.round(_batonHookTimeoutRaw)
   : _BATON_HOOK_TIMEOUT_S_DEFAULT;
 
+// Escape hatch: after this many consecutive ignored PreCompact blocks in one
+// session, allow auto-compaction rather than riding into context-limit errors.
+const _MAX_COMPACT_BLOCKS_DEFAULT = 3;
+const _maxCompactBlocksRaw = Number(process.env.BATON_MAX_COMPACT_BLOCKS ?? _MAX_COMPACT_BLOCKS_DEFAULT);
+const _maxCompactBlocksValid = Number.isFinite(_maxCompactBlocksRaw) && _maxCompactBlocksRaw >= 1;
+if (process.env.BATON_MAX_COMPACT_BLOCKS !== undefined && !_maxCompactBlocksValid) {
+  process.stderr.write(`baton: BATON_MAX_COMPACT_BLOCKS="${process.env.BATON_MAX_COMPACT_BLOCKS}" must be a number >= 1 — using default ${_MAX_COMPACT_BLOCKS_DEFAULT}\n`);
+}
+export const MAX_COMPACT_BLOCKS = _maxCompactBlocksValid
+  ? Math.round(_maxCompactBlocksRaw)
+  : _MAX_COMPACT_BLOCKS_DEFAULT;
+
 export const BATON_REL_PATH = ".baton/BATON.md";
 export const LEGACY_BATON_REL_PATH = ".claude/baton/BATON.md";
 

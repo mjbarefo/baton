@@ -5,6 +5,12 @@ export interface BatonState {
   maxTokens?: number;
   timeNudgeSent?: boolean;
   rateLimit5hPct?: number;
+  /** Consecutive auto-compact attempts blocked this session (PreCompact escape hatch). */
+  compactBlocks?: number;
+}
+
+export function normalizeCompactBlocks(raw: unknown): number {
+  return typeof raw === "number" && Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 0;
 }
 
 export function normalizeLevel(raw: unknown): NudgeLevel {

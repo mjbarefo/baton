@@ -58,7 +58,7 @@ bun run src/cli.ts install --host all  # install from source into supported host
 
 - **Self-locating commands:** `buildCommand()` in `config.ts` generates absolute paths so hooks survive across `npx`/`bunx` exits. Source installs use `bun run .../cli.ts`; published installs use `node .../cli.js`.
 - **Idempotent install:** `install()` is safe to run repeatedly — it detects existing hooks/statusline by command string, prunes stale entries pointing at old paths, and only writes files when content changed.
-- **PreCompact blocks, never allows:** The hook always outputs `{ decision: "block" }` — either because a fresh baton exists, or after writing a fallback. It never returns `"allow"`.
+- **PreCompact blocks, with an escape hatch:** The hook outputs `{ decision: "block" }` — either because a fresh baton exists, or after writing a fallback — and counts consecutive blocks in the per-session state file. After `MAX_COMPACT_BLOCKS` ignored blocks (default 3, env `BATON_MAX_COMPACT_BLOCKS`), it allows compaction (empty stdout) and resets the counter, so an unattended session degrades to normal auto-compact instead of context-limit errors.
 - **Transcript format:** Claude Code transcripts are JSONL, and the parser also accepts broader top-level `usage`/`tokens` shapes for Codex/Gemini-style fixtures. Only main-chain entries (not sidechain, not API errors) are used for token counting when those fields exist.
 - **Token counting uses last usage entry only:** The most recent usage-bearing entry represents current context size. Summing all entries would double-count cached tokens.
 - **Freshness window:** `BATON_FRESH_MS` (default 10 min, configurable via env) gates whether `SessionStart` injects and whether `PreCompact` considers an existing baton sufficient.
