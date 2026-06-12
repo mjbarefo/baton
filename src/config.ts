@@ -102,6 +102,18 @@ export const MAX_COMPACT_BLOCKS = _maxCompactBlocksValid
   ? Math.round(_maxCompactBlocksRaw)
   : _MAX_COMPACT_BLOCKS_DEFAULT;
 
+// If the hard nudge's injected protocol is ignored (mid-tool-chain, user
+// interrupt), re-inject it after this many further prompts at hard level.
+const _HARD_NUDGE_REARM_PROMPTS_DEFAULT = 5;
+const _hardRearmRaw = Number(process.env.BATON_HARD_NUDGE_REARM_PROMPTS ?? _HARD_NUDGE_REARM_PROMPTS_DEFAULT);
+const _hardRearmValid = Number.isFinite(_hardRearmRaw) && _hardRearmRaw >= 1;
+if (process.env.BATON_HARD_NUDGE_REARM_PROMPTS !== undefined && !_hardRearmValid) {
+  process.stderr.write(`baton: BATON_HARD_NUDGE_REARM_PROMPTS="${process.env.BATON_HARD_NUDGE_REARM_PROMPTS}" must be a number >= 1 — using default ${_HARD_NUDGE_REARM_PROMPTS_DEFAULT}\n`);
+}
+export const HARD_NUDGE_REARM_PROMPTS = _hardRearmValid
+  ? Math.round(_hardRearmRaw)
+  : _HARD_NUDGE_REARM_PROMPTS_DEFAULT;
+
 export const BATON_REL_PATH = ".baton/BATON.md";
 export const LEGACY_BATON_REL_PATH = ".claude/baton/BATON.md";
 

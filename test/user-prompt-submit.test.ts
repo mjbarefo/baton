@@ -129,6 +129,53 @@ describe("runUserPromptSubmitHook — level transitions", () => {
   });
 });
 
+describe("runUserPromptSubmitHook — hard-nudge re-arm", () => {
+  test("prompts at hard below the re-arm count stay quiet but increment the counter", async () => {
+    writeStateFile("rearm-quiet", { level: "hard", maxTokens: 200_000, promptsAtHard: 0 });
+    const transcript = writeTranscript(122_000);
+    await runUserPromptSubmitHook(
+      JSON.stringify({ session_id: "rearm-quiet", transcript_path: transcript, cwd: tmp }),
+    );
+    expect(stdoutCapture).toBe("");
+    const state = JSON.parse(readFileSync(join(STATE_DIR, "rearm-quiet.json"), "utf8"));
+    expect(state.promptsAtHard).toBe(1);
+  });
+
+  test("re-fires the hard nudge once the re-arm count is reached, then resets", async () => {
+    writeStateFile("rearm-fire", { level: "hard", maxTokens: 200_000, promptsAtHard: 4 });
+    const transcript = writeTranscript(122_000);
+    await runUserPromptSubmitHook(
+      JSON.stringify({ session_id: "rearm-fire", transcript_path: transcript, cwd: tmp }),
+    );
+    const out = JSON.parse(stdoutCapture);
+    expect(out.hookSpecificOutput.additionalContext).toContain("CRITICAL");
+    const state = JSON.parse(readFileSync(join(STATE_DIR, "rearm-fire.json"), "utf8"));
+    expect(state.promptsAtHard).toBe(0);
+  });
+
+  test("initial hard nudge resets the re-arm counter", async () => {
+    writeStateFile("rearm-init", { level: "soft", maxTokens: 200_000, promptsAtHard: 3 });
+    const transcript = writeTranscript(122_000);
+    await runUserPromptSubmitHook(
+      JSON.stringify({ session_id: "rearm-init", transcript_path: transcript, cwd: tmp }),
+    );
+    const out = JSON.parse(stdoutCapture);
+    expect(out.hookSpecificOutput.additionalContext).toContain("CRITICAL");
+    const state = JSON.parse(readFileSync(join(STATE_DIR, "rearm-init.json"), "utf8"));
+    expect(state.promptsAtHard).toBe(0);
+  });
+
+  test("dropping back below hard does not run the re-arm path", async () => {
+    // State says hard but tokens are now low (e.g. wrong transcript or recovery).
+    writeStateFile("rearm-low", { level: "hard", maxTokens: 200_000, promptsAtHard: 4 });
+    const transcript = writeTranscript(50_000);
+    await runUserPromptSubmitHook(
+      JSON.stringify({ session_id: "rearm-low", transcript_path: transcript, cwd: tmp }),
+    );
+    expect(stdoutCapture).toBe("");
+  });
+});
+
 describe("runUserPromptSubmitHook — per-model thresholds", () => {
   test("sonnet soft nudge fires below the flat NUDGE_SOFT threshold", async () => {
     // 105k/200k = 0.525: above sonnet's 0.50 soft threshold, below the flat 0.55.

@@ -5,6 +5,7 @@ import { readFirstTimestamp } from "../transcript/read.ts";
 import { readTemplateBody } from "../baton/template-loader.ts";
 import {
   batonStateDir,
+  HARD_NUDGE_REARM_PROMPTS,
   legacyBatonStateDir,
   NUDGE_HARD_UNDER_RATE_PRESSURE,
   nudgeThresholdsForModel,
@@ -12,7 +13,13 @@ import {
   SESSION_AGE_NUDGE_MIN_TOKENS,
   SESSION_AGE_NUDGE_MS,
 } from "../config.ts";
-import { normalizeLevel, normalizeMaxTokens, normalizeModelId, normalizeRateLimit5hPct } from "../baton/state.ts";
+import {
+  normalizeLevel,
+  normalizeMaxTokens,
+  normalizeModelId,
+  normalizeNonNegativeInt,
+  normalizeRateLimit5hPct,
+} from "../baton/state.ts";
 import type { BatonState, NudgeLevel } from "../baton/state.ts";
 
 interface HookPayload {
@@ -140,7 +147,7 @@ export async function runUserPromptSubmitHook(raw: string): Promise<void> {
     (tokenLevel === "hard" && prior.level !== "hard");
 
   if (tokenNudgeShouldFire) {
-    writeState(statePath, prior, { level: tokenLevel });
+    writeState(statePath, prior, { level: tokenLevel, promptsAtHard: 0 });
     const output = {
       hookSpecificOutput: {
         hookEventName,
@@ -150,6 +157,28 @@ export async function runUserPromptSubmitHook(raw: string): Promise<void> {
       },
     };
     process.stdout.write(JSON.stringify(output));
+    return;
+  }
+
+  // --- Hard-nudge re-arm ---
+  // The hard nudge injects the full baton protocol once. If Claude didn't act
+  // on it (interrupted mid-tool-chain, user steered elsewhere), the session
+  // stays pinned at hard with no further signal. Count prompts at hard and
+  // re-inject every HARD_NUDGE_REARM_PROMPTS until a baton actually gets written.
+  if (tokenLevel === "hard" && prior.level === "hard") {
+    const promptsAtHard = normalizeNonNegativeInt(prior.promptsAtHard) + 1;
+    if (promptsAtHard >= HARD_NUDGE_REARM_PROMPTS) {
+      writeState(statePath, prior, { promptsAtHard: 0 });
+      const output = {
+        hookSpecificOutput: {
+          hookEventName,
+          additionalContext: message("hard", snap.total, maxTokens, reason, prior.rateLimit5hPct),
+        },
+      };
+      process.stdout.write(JSON.stringify(output));
+    } else {
+      writeState(statePath, prior, { promptsAtHard });
+    }
     return;
   }
 

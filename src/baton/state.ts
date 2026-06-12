@@ -9,14 +9,20 @@ export interface BatonState {
   compactBlocks?: number;
   /** Model id persisted by the statusline; used for per-model nudge thresholds. */
   modelId?: string;
+  /** Prompts seen at hard level since the last hard-nudge injection (re-arm counter). */
+  promptsAtHard?: number;
 }
 
 export function normalizeModelId(raw: unknown): string | undefined {
   return typeof raw === "string" && raw.trim() !== "" ? raw : undefined;
 }
 
-export function normalizeCompactBlocks(raw: unknown): number {
+export function normalizeNonNegativeInt(raw: unknown): number {
   return typeof raw === "number" && Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 0;
+}
+
+export function normalizeCompactBlocks(raw: unknown): number {
+  return normalizeNonNegativeInt(raw);
 }
 
 export function normalizeLevel(raw: unknown): NudgeLevel {
