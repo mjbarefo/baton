@@ -147,10 +147,12 @@ Fallback batons and sidecar prompts are passed through a redaction step before w
 
 Add custom patterns to:
 
-- `~/.baton/ignore` — user-level, applied to every project
-- `.batonignore` — project-level, applied to the current project
+- `~/.baton/ignore` or `~/.batonredact` — user-level, applied to every project
+- `.batonignore` or `.batonredact` — project-level, applied to the current project
 
 The legacy `~/.claude/baton-ignore` file is still read for compatibility.
+
+Run `baton redact` to print the nearest BATON.md with secrets stripped — useful for piping a sanitized baton to other tools.
 
 Format: one regex per line, `#` for comments, optional `LABEL:::REGEX` to name the pattern. Empty lines are ignored.
 

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-baton is a local-first session baton for coding agents (published as `ccbaton` on npm). The host-neutral contract is `.baton/BATON.md`; Claude Code, Codex CLI, and Gemini CLI are adapters around that file. Claude Code still gets the richest integration: statusline, `UserPromptSubmit`, `PreCompact`, `SessionStart`, and `/baton`, `/drop`, `/baton-codex`, and `/baton-gemini` slash commands in `~/.claude/`.
+baton is a local-first session baton for coding agents (published as `ccbaton` on npm). The host-neutral contract is `.baton/BATON.md`; Claude Code, Codex CLI, and Gemini CLI are adapters around that file. Claude Code still gets the richest integration: statusline, `UserPromptSubmit`, `PreCompact`, `SessionStart`, and `/baton`, `/drop`, `/baton-codex`, `/baton-gemini`, and `/baton-agent` slash commands in `~/.claude/`.
 
 ## Commands
 
@@ -19,7 +19,7 @@ bun run src/cli.ts install --host all  # install from source into supported host
 
 ## Architecture
 
-**Entry point:** `src/cli.ts` — dispatches subcommands (`statusline`, `hook <event>`, `install`, `check`, `uninstall`, `validate`, `status`, `catch`, `drop`, `reconstruct`, `list`, `show`, `prune`, `recall`, `sidecar`). Also handles `--version`/`-v`. All subcommands read stdin or CLI args; none are interactive.
+**Entry point:** `src/cli.ts` — dispatches subcommands (`statusline`, `hook <event>`, `install`, `check`, `uninstall`, `validate`, `status`, `catch`, `drop`, `redact`, `reconstruct`, `list`, `show`, `prune`, `recall`, `sidecar`). Also handles `--version`/`-v`. All subcommands read stdin or CLI args; none are interactive.
 
 **Core modules:**
 
@@ -39,6 +39,7 @@ bun run src/cli.ts install --host all  # install from source into supported host
   - `find.ts` — walk up from cwd to locate nearest `BATON.md`
   - `reconstruct.ts` — rebuild a baton from a transcript JSONL file (`reconstruct` subcommand)
   - `redact.ts` — strip secrets from baton body before sending to a sidecar; loads default patterns plus user/project overrides
+  - `redact-cmd.ts` — `redact` subcommand: print the nearest BATON.md with secrets stripped
   - `state.ts` — read/write the per-session state file
   - `status.ts` — project baton status and latest archive summary
   - `template-loader.ts` — reads the `/baton` command template
@@ -65,7 +66,7 @@ bun run src/cli.ts install --host all  # install from source into supported host
 - **Sidecar host adapter pattern:** `run.ts` defines a `HostAdapter` interface (`binaryName`, `installHint`, `buildInvocation`). Each host (`codex.ts`, `gemini.ts`) exports a single adapter constant. Adding a new host requires only a new adapter file and a branch in `pickAdapter()` — no changes to the shared orchestration.
 - **Canonical path with legacy read:** New writes use `.baton/BATON.md`; lookup also reads legacy `.claude/baton/BATON.md` for compatibility.
 - **Shared user state:** New archives, state files, template overrides, redaction config, and install manifests live under `~/.baton/`, while legacy Claude paths are read for one release.
-- **Sidecar redaction before send:** `run.ts` redacts the baton body using patterns from `src/baton/redact.ts` before constructing the prompt. Default patterns plus user (`~/.baton/ignore`, legacy `~/.claude/baton-ignore`) and project (`.batonignore`) overrides are all applied. Redaction count is printed to stderr so the user knows secrets were stripped.
+- **Sidecar redaction before send:** `run.ts` redacts the baton body using patterns from `src/baton/redact.ts` before constructing the prompt. Default patterns plus user (`~/.baton/ignore`, `~/.batonredact`, legacy `~/.claude/baton-ignore`) and project (`.batonignore`, `.batonredact`) overrides are all applied. Redaction count is printed to stderr so the user knows secrets were stripped.
 - **Backup collision avoidance:** `backup()` in `settings-patch.ts` appends an incrementing numeric suffix (e.g. `-1`, `-2`) if the timestamped backup path already exists. This prevents silent overwrites when `install()` is called multiple times within the same second.
 
 ## Testing
