@@ -79,7 +79,7 @@ The `/baton-gemini` and `/baton-codex` commands installed into `~/.claude/` foll
 
 ### Coding Style & Patterns
 - **Non-Interactive CLI**: All subcommands read from `stdin` or CLI arguments; none are interactive.
-- **Output**: Prefer `process.stdout.write` and `process.stderr.write` over `console.log` for precise control.
+- **Output**: Use `process.stdout.write` and `process.stderr.write`, never `console.*`. Hook stdout is parsed as protocol (JSON decisions, `additionalContext`), so a stray `console.log` corrupts it; explicit streams keep the stdout/stderr split unambiguous and give exact control over bytes and newlines. Human-facing messages and warnings go to stderr.
 - **Self-Locating Commands**: `buildCommand()` in `src/config.ts` ensures hooks use absolute paths regardless of invocation context.
 - **Idempotency**: Installation and patching logic must be safe to run repeatedly.
 - **Sidecars are read-only**: Codex uses `--sandbox read-only --ephemeral`; Gemini uses `--approval-mode plan`. The prompt also explicitly instructs the sidecar not to modify files, run shell commands, or exit plan mode. Do not add write-capable sidecar behavior without explicit product intent and tests.

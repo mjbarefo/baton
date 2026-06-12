@@ -67,6 +67,7 @@ bun run src/cli.ts install --host all               # install from source into s
 - **Shared user state:** Archives, state files, template overrides, redaction config, and install manifests live under `~/.baton/`, while legacy Claude paths are read for one release.
 - **Sidecar host adapter pattern:** `run.ts` defines a `HostAdapter` interface (`binaryName`, `installHint`, `buildInvocation`). Each host (`codex.ts`, `gemini.ts`) exports a single adapter constant. Adding a new host requires only a new adapter file and a branch in `pickAdapter()`.
 - **Backup collision avoidance:** `backup()` in `settings-patch.ts` appends an incrementing numeric suffix (e.g. `-1`, `-2`) if the timestamped backup path already exists, preventing silent overwrites when `install()` is called multiple times per second.
+- **Output via explicit streams:** Use `process.stdout.write` / `process.stderr.write`, never `console.*`. baton runs as hooks whose stdout is parsed as protocol (JSON decisions, `additionalContext`), so a stray `console.log` corrupts it; standardizing on explicit streams keeps the stdout/stderr split unambiguous and gives exact control over bytes and newlines. Human-facing messages and warnings go to stderr.
 
 ## Testing
 

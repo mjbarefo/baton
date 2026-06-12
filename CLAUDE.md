@@ -70,6 +70,7 @@ bun run src/cli.ts install --host all  # install from source into supported host
 - **Shared user state:** New archives, state files, template overrides, redaction config, and install manifests live under `~/.baton/`, while legacy Claude paths are read for one release.
 - **Sidecar redaction before send:** `run.ts` redacts the baton body using patterns from `src/baton/redact.ts` before constructing the prompt. Default patterns plus user (`~/.baton/ignore`, `~/.batonredact`, legacy `~/.claude/baton-ignore`) and project (`.batonignore`, `.batonredact`) overrides are all applied. Redaction count is printed to stderr so the user knows secrets were stripped.
 - **Backup collision avoidance:** `backup()` in `settings-patch.ts` appends an incrementing numeric suffix (e.g. `-1`, `-2`) if the timestamped backup path already exists. This prevents silent overwrites when `install()` is called multiple times within the same second.
+- **Output via explicit streams:** Use `process.stdout.write` / `process.stderr.write`, never `console.*`. baton runs as hooks whose stdout is parsed as protocol (JSON decisions, `additionalContext`), so a stray `console.log` corrupts it; standardizing on explicit streams keeps the stdout/stderr split unambiguous and gives exact control over bytes and newlines. Human-facing messages and warnings go to stderr.
 
 ## Testing
 
