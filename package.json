@@ -1,6 +1,6 @@
 {
   "name": "ccbaton",
-  "version": "0.3.7",
+  "version": "0.4.0",
   "description": "Local-first session baton for Claude Code, Codex CLI, and Gemini CLI.",
   "repository": {
     "type": "git",
